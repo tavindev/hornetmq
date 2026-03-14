@@ -13,7 +13,8 @@ struct Payload {
     concurrency = 10,
     retry = 5,
     backoff = "exponential(1000, 30000)",
-    lock_duration = 60000
+    lock_duration = 60000,
+    limiter = "100, 5000"
 )]
 fn handle_task(job: &Job<Payload>) -> Result<u32> {
     Ok(job.data.value * 2)

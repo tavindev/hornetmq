@@ -14,6 +14,29 @@ struct WorkerOpts {
     retry: u32,
     backoff: Option<BackoffConfig>,
     lock_duration: u64,
+    limiter: Option<LimiterConfig>,
+}
+
+struct LimiterConfig {
+    max: u32,
+    duration: u64,
+}
+
+fn parse_limiter(s: &str, span: proc_macro2::Span) -> syn::Result<LimiterConfig> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 2 {
+        return Err(syn::Error::new(
+            span,
+            "limiter requires two arguments: max, duration (e.g. \"10, 1000\")",
+        ));
+    }
+    let max: u32 = parts[0].trim().parse().map_err(|_| {
+        syn::Error::new(span, format!("invalid limiter max: {}", parts[0].trim()))
+    })?;
+    let duration: u64 = parts[1].trim().parse().map_err(|_| {
+        syn::Error::new(span, format!("invalid limiter duration: {}", parts[1].trim()))
+    })?;
+    Ok(LimiterConfig { max, duration })
 }
 
 enum BackoffConfig {
@@ -57,6 +80,7 @@ struct WorkerOptsBuilder {
     retry: Option<u32>,
     backoff: Option<BackoffConfig>,
     lock_duration: Option<u64>,
+    limiter: Option<LimiterConfig>,
     queue_span: Option<proc_macro2::Span>,
 }
 
@@ -68,6 +92,7 @@ impl WorkerOptsBuilder {
             retry: None,
             backoff: None,
             lock_duration: None,
+            limiter: None,
             queue_span: None,
         }
     }
@@ -85,6 +110,7 @@ impl WorkerOptsBuilder {
             retry: self.retry.unwrap_or(0),
             backoff: self.backoff,
             lock_duration: self.lock_duration.unwrap_or(30_000),
+            limiter: self.limiter,
         })
     }
 }
@@ -118,6 +144,10 @@ impl Parse for WorkerOpts {
                 "lock_duration" => {
                     let val: syn::LitInt = input.parse()?;
                     opts.lock_duration = Some(val.base10_parse()?);
+                }
+                "limiter" => {
+                    let val: syn::LitStr = input.parse()?;
+                    opts.limiter = Some(parse_limiter(&val.value(), val.span())?);
                 }
                 _ => {
                     return Err(syn::Error::new(
@@ -298,11 +328,12 @@ fn generate_worker(
         None => quote! {},
     };
 
-    // Note: retry is stored in opts but applied at the job level via AddJobOptions,
-    // not on the Worker itself. The macro documents the intended retry count but
-    // the Worker doesn't have a retry field — retries come from job.opts.attempts
-    // which is set by the producer. We'll keep the retry option for documentation
-    // and potential future use.
+    let limiter_chain = match &opts.limiter {
+        Some(LimiterConfig { max, duration }) => {
+            quote! { .with_limiter(#max, #duration) }
+        }
+        None => quote! {},
+    };
 
     Ok(quote! {
         #func
@@ -320,7 +351,8 @@ fn generate_worker(
                     #fn_name,
                 )
                 .with_lock_duration(#lock_duration)
-                #backoff_chain;
+                #backoff_chain
+                #limiter_chain;
 
                 Self { inner: worker }
             }
