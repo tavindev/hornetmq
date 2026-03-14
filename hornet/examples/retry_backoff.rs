@@ -7,7 +7,7 @@
 //! ```
 
 use anyhow::Result;
-use hornet::{
+use hornetmq::{
     core::{backoff::BackoffStrategy, job::Job},
     queue::{AddJobOptions, Queue},
     worker::Worker,

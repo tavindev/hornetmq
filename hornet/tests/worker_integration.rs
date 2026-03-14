@@ -1,5 +1,5 @@
 use anyhow::Result;
-use hornet::{core::job::Job, worker::Worker};
+use hornetmq::{core::job::Job, worker::Worker};
 use redis::Commands;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;

@@ -1,4 +1,4 @@
-use hornet::queue::{AddJobOptions, Queue};
+use hornetmq::queue::{AddJobOptions, Queue};
 use redis::Commands;
 use uuid::Uuid;
 

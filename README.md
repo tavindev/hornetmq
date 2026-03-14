@@ -1,6 +1,6 @@
-# Hornet
+# HornetMQ
 
-A fast, Redis-backed job queue for Rust. **Fully compatible with [BullMQ](https://docs.bullmq.io/)** — use Hornet as a worker/producer alongside existing BullMQ (Node.js) producers/workers, or use it standalone.
+A fast, Redis-backed job queue for Rust. **Fully compatible with [BullMQ](https://docs.bullmq.io/)** — use HornetMQ as a worker/producer alongside existing BullMQ (Node.js) producers/workers, or use it standalone.
 
 ## Features
 
@@ -19,7 +19,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-hornet = { git = "https://github.com/tavindev/hornet" }
+hornetmq = { git = "https://github.com/tavindev/hornet" }
 ```
 
 Requires a running Redis instance.
@@ -29,7 +29,7 @@ Requires a running Redis instance.
 ### Producer
 
 ```rust
-use hornet::queue::{Queue, AddJobOptions};
+use hornetmq::queue::{Queue, AddJobOptions};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -58,7 +58,7 @@ fn main() {
 
 ```rust
 use anyhow::Result;
-use hornet::{core::job::Job, worker::Worker};
+use hornetmq::{core::job::Job, worker::Worker};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -90,8 +90,8 @@ The worker handles SIGINT/SIGTERM automatically — press Ctrl+C and it will fin
 ## Job Options
 
 ```rust
-use hornet::queue::AddJobOptions;
-use hornet::core::backoff::BackoffStrategy;
+use hornetmq::queue::AddJobOptions;
+use hornetmq::core::backoff::BackoffStrategy;
 
 let opts = AddJobOptions {
     attempts: Some(5),                          // max retry attempts
@@ -134,31 +134,13 @@ The worker automatically detects stalled jobs — jobs that were being processed
 
 ## BullMQ Compatibility
 
-Hornet uses the same Redis keys, Lua scripts, and data format as BullMQ. You can:
+HornetMQ uses the same Redis keys, Lua scripts, and data format as BullMQ. You can:
 
-- Enqueue jobs with BullMQ (Node.js), process with Hornet (Rust)
-- Enqueue jobs with Hornet, process with BullMQ
+- Enqueue jobs with BullMQ (Node.js), process with HornetMQ (Rust)
+- Enqueue jobs with HornetMQ, process with BullMQ
 - Mix producers and consumers across both
 
 Queue key format: `bull:{queue_name}:{key}`
-
-## Architecture
-
-```
-hornet/
-  src/
-    core/           # Pure domain logic (no Redis dependency)
-      backoff.rs    # BackoffStrategy + compute_delay()
-      retry.rs      # should_retry(), next_retry_delay()
-      stall.rs      # is_stalled()
-      events.rs     # JobEvent enum
-      job.rs        # Job, JobOptions, JobBuilder
-    scripts/        # Redis Lua script wrappers
-    queue.rs        # Producer
-    worker.rs       # Consumer
-```
-
-Core logic is separated from infrastructure for testability. Unit tests cover core logic without Redis; integration tests run against a real Redis instance.
 
 ## Examples
 
@@ -168,6 +150,17 @@ cargo run --example retry_backoff        # exponential backoff retry
 cargo run --example graceful_shutdown    # Ctrl+C graceful drain
 cargo run --example priority_queue       # priority-based processing
 ```
+
+## Benchmarks
+
+```sh
+cargo bench                        # run all benchmarks
+cargo bench --bench core_benchmarks    # core logic (backoff, retry, stall)
+cargo bench --bench queue_benchmarks   # enqueue throughput + payload sizes
+cargo bench --bench worker_benchmarks  # end-to-end worker throughput
+```
+
+Requires a running Redis instance for queue and worker benchmarks. Results are saved to `target/criterion/` with HTML reports.
 
 ## License
 

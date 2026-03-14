@@ -1,9 +1,13 @@
 [package]
-name = "hornet-macros"
+name = "hornetmq-macros"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Procedural macros for hornetmq"
+license = "MIT"
+repository = "https://github.com/tavindev/hornet"
+authors = ["tavindev"]
+keywords = ["queue", "redis", "bullmq", "jobs", "macros"]
+categories = ["asynchronous"]
 
 [lib]
 proc-macro = true

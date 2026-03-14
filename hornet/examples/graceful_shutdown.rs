@@ -8,7 +8,7 @@
 //! ```
 
 use anyhow::Result;
-use hornet::{
+use hornetmq::{
     core::job::Job,
     queue::{AddJobOptions, Queue},
     worker::Worker,
