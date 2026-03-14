@@ -8,6 +8,7 @@ use crate::{generate_script_struct, queue_keys::QueueKeys};
 generate_script_struct!(RetryJob, "./src/scripts/commands/retryJob-10.lua");
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct RetryJobArgs {
     pub token: String,
     #[serde(rename = "jobId")]
