@@ -1,8 +1,8 @@
 use std::time::SystemTime;
 
 use crate::{
+    core::job::{Job, JobBuilder},
     generate_script_struct,
-    job::{self, Job, JobBuilder},
     queue_keys::QueueKeys,
 };
 

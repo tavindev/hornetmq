@@ -1,8 +1,23 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+use super::backoff::BackoffStrategy;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JobState {
+    Waiting,
+    Delayed,
+    Active,
+    Completed,
+    Failed,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct JobOptions {
     pub attempts: u32,
+    #[serde(default)]
+    pub backoff: Option<BackoffStrategy>,
+    #[serde(default)]
+    pub delay: u64,
 }
 
 #[derive(Debug)]
@@ -112,5 +127,72 @@ impl<Data> JobBuilder<Data> {
             attempts_started: self.attempts_started.unwrap(),
             attempts_made: self.attempts_made,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_builder_builds_correctly() {
+        let job: Job<String> = JobBuilder::new()
+            .id("1".into())
+            .name("test".into())
+            .data("payload".into())
+            .opts(r#"{"attempts": 3}"#.into())
+            .timestamp(1000)
+            .delay(0)
+            .priority(0)
+            .processed_on(0)
+            .attempts_started(0)
+            .build();
+
+        assert_eq!(job.id, "1");
+        assert_eq!(job.name, "test");
+        assert_eq!(job.data, "payload");
+        assert_eq!(job.opts.attempts, 3);
+        assert!(job.attempts_made.is_none());
+    }
+
+    #[test]
+    fn job_builder_with_attempts_made() {
+        let job: Job<String> = JobBuilder::new()
+            .id("1".into())
+            .name("test".into())
+            .data("payload".into())
+            .opts(r#"{"attempts": 3}"#.into())
+            .timestamp(1000)
+            .delay(0)
+            .priority(0)
+            .processed_on(0)
+            .attempts_started(0)
+            .attempts_made(2)
+            .build();
+
+        assert_eq!(job.attempts_made, Some(2));
+    }
+
+    #[test]
+    fn job_state_equality() {
+        assert_eq!(JobState::Waiting, JobState::Waiting);
+        assert_ne!(JobState::Waiting, JobState::Active);
+    }
+
+    #[test]
+    fn job_options_deserialize_with_backoff() {
+        let json = r#"{"attempts": 5, "backoff": {"Exponential": {"base": 1000, "max": 30000}}}"#;
+        let opts: JobOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.attempts, 5);
+        assert!(opts.backoff.is_some());
+    }
+
+    #[test]
+    fn job_options_deserialize_without_backoff() {
+        let json = r#"{"attempts": 3}"#;
+        let opts: JobOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.attempts, 3);
+        assert!(opts.backoff.is_none());
+        assert_eq!(opts.delay, 0);
     }
 }

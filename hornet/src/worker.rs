@@ -1,5 +1,5 @@
 use crate::{
-    job::Job,
+    core::job::Job,
     scripts::{
         move_to_active::{MoveToActive, MoveToActiveArgs, MoveToActiveReturn},
         move_to_finished::{

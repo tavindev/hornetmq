@@ -1,5 +1,5 @@
 use anyhow::Result;
-use hornet::{job::Job, worker::Worker};
+use hornet::{core::job::Job, worker::Worker};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
