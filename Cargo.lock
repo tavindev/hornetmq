@@ -445,7 +445,7 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "hornetmq"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "hornetmq-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
