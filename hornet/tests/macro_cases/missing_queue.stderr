@@ -1,0 +1,19 @@
+error: missing required option: queue
+  --> tests/macro_cases/missing_queue.rs:11:10
+   |
+11 | #[worker(concurrency = 5)]
+   |          ^^^^^^^^^^^
+
+warning: unused import: `hornetmq::Job`
+ --> tests/macro_cases/missing_queue.rs:2:5
+  |
+2 | use hornetmq::Job;
+  |     ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `anyhow::Result`
+ --> tests/macro_cases/missing_queue.rs:3:5
+  |
+3 | use anyhow::Result;
+  |     ^^^^^^^^^^^^^^

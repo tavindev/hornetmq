@@ -1,0 +1,19 @@
+error: backoff must be "fixed(<ms>)" or "exponential(<base>, <max>)"
+  --> tests/macro_cases/invalid_backoff.rs:11:36
+   |
+11 | #[worker(queue = "test", backoff = "invalid(123)")]
+   |                                    ^^^^^^^^^^^^^^
+
+warning: unused import: `hornetmq::Job`
+ --> tests/macro_cases/invalid_backoff.rs:2:5
+  |
+2 | use hornetmq::Job;
+  |     ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `anyhow::Result`
+ --> tests/macro_cases/invalid_backoff.rs:3:5
+  |
+3 | use anyhow::Result;
+  |     ^^^^^^^^^^^^^^

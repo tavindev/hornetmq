@@ -163,7 +163,7 @@ async fn test_worker_retries_with_backoff() {
         &queue_name,
         job_id,
         &data,
-        r#"{"attempts": 3, "backoff": {"Fixed": 2000}}"#,
+        r#"{"attempts": 3, "backoff": {"type": "fixed", "delay": 2000}}"#,
     );
 
     let mut worker = Worker::new(

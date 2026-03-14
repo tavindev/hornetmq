@@ -1,5 +1,6 @@
 use crate::{
     core::{
+        backoff::BackoffStrategy,
         events::JobEvent,
         job::Job,
         retry::{next_retry_delay, should_retry},
@@ -121,6 +122,7 @@ where
     drained: bool,
     shutdown_flag: Arc<AtomicBool>,
     lock_duration: u64,
+    default_backoff: Option<BackoffStrategy>,
 }
 
 impl<JobData, ReturnType> Worker<JobData, ReturnType>
@@ -149,11 +151,17 @@ where
             drained: false,
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             lock_duration: DEFAULT_LOCK_DURATION,
+            default_backoff: None,
         }
     }
 
     pub fn with_lock_duration(mut self, lock_duration: u64) -> Self {
         self.lock_duration = lock_duration;
+        self
+    }
+
+    pub fn with_backoff(mut self, strategy: BackoffStrategy) -> Self {
+        self.default_backoff = Some(strategy);
         self
     }
 
@@ -172,6 +180,7 @@ where
         let sender = self.sender.clone();
         let process_fn = self.process_fn;
         let lock_duration = self.lock_duration;
+        let default_backoff = self.default_backoff.clone();
 
         tokio::spawn(async move {
             // Move to active script
@@ -226,7 +235,8 @@ where
                                 let attempts_made = job.attempts_made.unwrap_or(0) + 1;
 
                                 if should_retry(attempts_made, job.opts.attempts) {
-                                    let delay = next_retry_delay(&job.opts.backoff, attempts_made);
+                                    let effective_backoff = job.opts.backoff.as_ref().or(default_backoff.as_ref()).cloned();
+                                    let delay = next_retry_delay(&effective_backoff, attempts_made);
 
                                     if delay > 0 {
                                         // Move to delayed set with backoff delay

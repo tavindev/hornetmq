@@ -13,6 +13,7 @@ pub enum JobState {
 
 #[derive(Debug, Deserialize)]
 pub struct JobOptions {
+    #[serde(default)]
     pub attempts: u32,
     #[serde(default)]
     pub backoff: Option<BackoffStrategy>,
@@ -187,7 +188,7 @@ mod tests {
 
     #[test]
     fn job_options_deserialize_with_backoff() {
-        let json = r#"{"attempts": 5, "backoff": {"Exponential": {"base": 1000, "max": 30000}}}"#;
+        let json = r#"{"attempts": 5, "backoff": {"type": "exponential", "delay": 1000, "max": 30000}}"#;
         let opts: JobOptions = serde_json::from_str(json).unwrap();
         assert_eq!(opts.attempts, 5);
         assert!(opts.backoff.is_some());
@@ -200,5 +201,35 @@ mod tests {
         assert_eq!(opts.attempts, 3);
         assert!(opts.backoff.is_none());
         assert_eq!(opts.delay, 0);
+    }
+
+    #[test]
+    fn job_options_deserializes_bullmq_opts_with_backoff() {
+        let json = r#"{"attempts":3,"backoff":{"type":"fixed","delay":5000},"delay":0}"#;
+        let opts: JobOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.attempts, 3);
+        assert_eq!(
+            opts.backoff,
+            Some(crate::core::backoff::BackoffStrategy::Fixed(5000))
+        );
+        assert_eq!(opts.delay, 0);
+    }
+
+    #[test]
+    fn job_options_deserializes_bullmq_opts_minimal() {
+        let json = r#"{}"#;
+        let opts: JobOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.attempts, 0);
+        assert!(opts.backoff.is_none());
+        assert_eq!(opts.delay, 0);
+    }
+
+    #[test]
+    fn job_options_deserializes_bullmq_opts_with_extra_fields() {
+        let json = r#"{"attempts":2,"delay":0,"removeOnComplete":true,"removeOnFail":false,"jobId":"custom-123"}"#;
+        let opts: JobOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.attempts, 2);
+        assert_eq!(opts.delay, 0);
+        assert!(opts.backoff.is_none());
     }
 }
