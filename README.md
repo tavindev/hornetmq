@@ -24,7 +24,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-hornetmq = { git = "https://github.com/tavindev/hornetmq" }
+hornetmq = "0.3"
 ```
 
 Requires a running Redis instance.
