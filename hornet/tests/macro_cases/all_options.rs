@@ -11,7 +11,6 @@ struct Payload {
 #[worker(
     queue = "tasks",
     concurrency = 10,
-    retry = 5,
     backoff = "exponential(1000, 30000)",
     lock_duration = 60000,
     limiter = "100, 5000"

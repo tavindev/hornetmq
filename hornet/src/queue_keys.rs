@@ -11,6 +11,8 @@ pub enum QueueKeys {
     Pc,
     Marker,
     Metrics,
+    Completed,
+    Failed,
     Custom(String),
 }
 
@@ -29,6 +31,8 @@ impl QueueKeys {
             QueueKeys::Pc => "pc",
             QueueKeys::Marker => "marker",
             QueueKeys::Metrics => "metrics",
+            QueueKeys::Completed => "completed",
+            QueueKeys::Failed => "failed",
             QueueKeys::Custom(s) => s,
         }
         .into()

@@ -8,7 +8,7 @@
 --- @include "removeJob"
 
 local function cleanList(listKey, jobKeyPrefix, rangeStart, rangeEnd,
-  timestamp, isWaiting)
+  timestamp, limit, isWaiting)
   local jobs = rcall("LRANGE", listKey, rangeStart, rangeEnd)
   local deleted = {}
   local deletedCount = 0

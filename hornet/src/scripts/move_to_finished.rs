@@ -18,7 +18,7 @@ pub enum MoveToFinishedTarget {
 }
 
 impl MoveToFinishedTarget {
-    pub fn msg_prorperty(&self) -> &'static str {
+    pub fn msg_property(&self) -> &'static str {
         match self {
             MoveToFinishedTarget::Completed => "returnvalue",
             MoveToFinishedTarget::Failed => "failedReason",
@@ -128,7 +128,7 @@ impl MoveToFinished {
         let _args = vec![
             job_id,
             timestamp.as_str(),
-            target.msg_prorperty(),
+            target.msg_property(),
             return_msg,
             target.as_str(),
             "false",

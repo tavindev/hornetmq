@@ -1,30 +1,10 @@
 use anyhow::Result;
-use redis::{FromRedisValue, ToRedisArgs};
-use serde::Serialize;
+use redis::FromRedisValue;
 use std::time::SystemTime;
 
 use crate::{generate_script_struct, queue_keys::QueueKeys};
 
 generate_script_struct!(RetryJob, "./src/scripts/commands/retryJob-10.lua");
-
-#[derive(Debug, Serialize)]
-#[allow(dead_code)]
-pub struct RetryJobArgs {
-    pub token: String,
-    #[serde(rename = "jobId")]
-    pub job_id: String,
-}
-
-impl ToRedisArgs for RetryJobArgs {
-    fn write_redis_args<W>(&self, out: &mut W)
-    where
-        W: ?Sized + redis::RedisWrite,
-    {
-        rmp_serde::encode::to_vec_named(self)
-            .unwrap()
-            .write_redis_args(out)
-    }
-}
 
 #[derive(Debug)]
 pub enum RetryJobReturn {

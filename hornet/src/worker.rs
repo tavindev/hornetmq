@@ -51,6 +51,7 @@ impl WorkerToken {
 
 enum TaskEvent {
     Freed,
+    FreedEmpty,
 }
 
 type ProcessFn<Data, Return> = fn(&Job<Data>) -> Result<Return>;
@@ -191,25 +192,42 @@ where
         let limiter = self.limiter.clone();
 
         tokio::spawn(async move {
+            struct FreedOnDrop(Option<tokio::sync::mpsc::Sender<TaskEvent>>);
+            impl Drop for FreedOnDrop {
+                fn drop(&mut self) {
+                    if let Some(s) = self.0.take() {
+                        let _ = s.try_send(TaskEvent::FreedEmpty);
+                    }
+                }
+            }
+            let mut _guard = FreedOnDrop(Some(sender.clone()));
+
+            let mut processed_any = false;
+
             // Move to active script
             while let Ok(job) = MOVE_TO_ACTIVE.run::<JobData>(
                 &prefix,
                 &mut client,
                 MoveToActiveArgs {
                     token: token.clone(),
-                    lock_duration: 10_000,
+                    lock_duration: lock_duration as u32,
                     limiter: limiter.clone(),
                 },
             ) {
                 match job {
                     MoveToActiveReturn::Job(job) => {
+                        processed_any = true;
+
                         // Emit active event
                         emit_event(&mut client, &prefix, JobEvent::Active, &job.id);
 
                         match process_fn(&job) {
                             Ok(result) => {
                                 // Move job to completed
-                                let stringified_result = serde_json::to_string(&result).unwrap();
+                                let stringified_result = match serde_json::to_string(&result) {
+                                    Ok(s) => s,
+                                    Err(e) => format!("\"serialization error: {e}\""),
+                                };
 
                                 let keep_jobs = job
                                     .opts
@@ -327,7 +345,6 @@ where
                         }
                     }
                     MoveToActiveReturn::None => {
-                        // No job to process
                         break;
                     }
                     MoveToActiveReturn::RateLimited(_) => {
@@ -336,8 +353,13 @@ where
                 }
             }
 
-            // Emits a signal to the worker that it's done processing jobs
-            let _ = sender.send(TaskEvent::Freed).await;
+            // Disarm the guard and send the appropriate signal
+            _guard.0 = None;
+            if processed_any {
+                let _ = sender.send(TaskEvent::Freed).await;
+            } else {
+                let _ = sender.send(TaskEvent::FreedEmpty).await;
+            }
         });
     }
 
@@ -457,11 +479,16 @@ where
                 break;
             }
 
-            // Does not clear all the buffer
             while self.active_tasks >= self.concurrency {
-                if let Some(TaskEvent::Freed) = self.receiver.recv().await {
-                    self.active_tasks -= 1;
-                    self.drained = true;
+                match self.receiver.recv().await {
+                    Some(TaskEvent::Freed) => {
+                        self.active_tasks -= 1;
+                    }
+                    Some(TaskEvent::FreedEmpty) => {
+                        self.active_tasks -= 1;
+                        self.drained = true;
+                    }
+                    None => break,
                 }
 
                 if self.shutdown_flag.load(Ordering::SeqCst) {
@@ -503,8 +530,11 @@ where
 
         // Drain active tasks
         while self.active_tasks > 0 {
-            if let Some(TaskEvent::Freed) = self.receiver.recv().await {
-                self.active_tasks -= 1;
+            match self.receiver.recv().await {
+                Some(TaskEvent::Freed | TaskEvent::FreedEmpty) => {
+                    self.active_tasks -= 1;
+                }
+                None => break,
             }
         }
 

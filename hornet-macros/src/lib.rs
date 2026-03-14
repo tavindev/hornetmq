@@ -7,11 +7,9 @@ use syn::{
     parse_macro_input, ItemFn, ReturnType, Type,
 };
 
-#[allow(dead_code)]
 struct WorkerOpts {
     queue: String,
     concurrency: u32,
-    retry: u32,
     backoff: Option<BackoffConfig>,
     lock_duration: u64,
     limiter: Option<LimiterConfig>,
@@ -77,7 +75,6 @@ fn parse_backoff(s: &str, span: proc_macro2::Span) -> syn::Result<BackoffConfig>
 struct WorkerOptsBuilder {
     queue: Option<String>,
     concurrency: Option<u32>,
-    retry: Option<u32>,
     backoff: Option<BackoffConfig>,
     lock_duration: Option<u64>,
     limiter: Option<LimiterConfig>,
@@ -89,7 +86,6 @@ impl WorkerOptsBuilder {
         WorkerOptsBuilder {
             queue: None,
             concurrency: None,
-            retry: None,
             backoff: None,
             lock_duration: None,
             limiter: None,
@@ -107,7 +103,6 @@ impl WorkerOptsBuilder {
         Ok(WorkerOpts {
             queue,
             concurrency: self.concurrency.unwrap_or(1),
-            retry: self.retry.unwrap_or(0),
             backoff: self.backoff,
             lock_duration: self.lock_duration.unwrap_or(30_000),
             limiter: self.limiter,
@@ -132,10 +127,6 @@ impl Parse for WorkerOpts {
                 "concurrency" => {
                     let val: syn::LitInt = input.parse()?;
                     opts.concurrency = Some(val.base10_parse()?);
-                }
-                "retry" => {
-                    let val: syn::LitInt = input.parse()?;
-                    opts.retry = Some(val.base10_parse()?);
                 }
                 "backoff" => {
                     let val: syn::LitStr = input.parse()?;

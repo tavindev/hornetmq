@@ -37,7 +37,7 @@ impl ToRedisArgs for AddStandardJobOpts {
 }
 
 /// Build ARGV[1]: a msgpack array of 9 elements matching lua args[1]..args[9].
-fn build_argv1(prefix: &str, job_name: &str, timestamp: &str, custom_id: &str) -> Vec<u8> {
+fn build_argv1(prefix: &str, job_name: &str, timestamp: u64, custom_id: &str) -> Vec<u8> {
     use rmp::encode;
 
     let mut buf = Vec::new();
@@ -55,8 +55,7 @@ fn build_argv1(prefix: &str, job_name: &str, timestamp: &str, custom_id: &str) -
     encode::write_str(&mut buf, job_name).unwrap();
 
     // args[4] = timestamp (as integer)
-    let ts: i64 = timestamp.parse().unwrap();
-    encode::write_sint(&mut buf, ts).unwrap();
+    encode::write_uint(&mut buf, timestamp).unwrap();
 
     // args[5] = parentKey (nil)
     encode::write_nil(&mut buf).unwrap();
@@ -91,8 +90,7 @@ impl AddStandardJob {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_millis()
-            .to_string();
+            .as_millis() as u64;
 
         // KEYS[1..7]: wait, paused, meta, id, completed, events, marker
         let keys: Vec<String> = [
@@ -100,7 +98,7 @@ impl AddStandardJob {
             QueueKeys::Paused,
             QueueKeys::Meta,
             QueueKeys::Custom("id".into()),
-            QueueKeys::Custom("completed".into()),
+            QueueKeys::Completed,
             QueueKeys::Events,
             QueueKeys::Marker,
         ]
@@ -112,7 +110,7 @@ impl AddStandardJob {
             script = script.key(key)
         }
 
-        let argv1 = build_argv1(prefix, job_name, &timestamp, custom_id);
+        let argv1 = build_argv1(prefix, job_name, timestamp, custom_id);
 
         // ARGV[1] = msgpacked args array
         script = script.arg(argv1);
