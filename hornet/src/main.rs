@@ -23,5 +23,5 @@ async fn main() {
         test_processor,
     );
 
-    worker.run().await;
+    worker.run().await.unwrap();
 }
