@@ -1,4 +1,8 @@
-# HornetMQ
+<p align="center">
+  <img src="assets/icon-256.png" alt="HornetMQ" width="128" />
+</p>
+
+<h1 align="center">HornetMQ</h1>
 
 A fast, Redis-backed job queue for Rust. **Fully compatible with [BullMQ](https://docs.bullmq.io/)** — use HornetMQ as a worker/producer alongside existing BullMQ (Node.js) producers/workers, or use it standalone.
 
