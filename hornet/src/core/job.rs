@@ -2,6 +2,55 @@ use serde::{Deserialize, Serialize};
 
 use super::backoff::BackoffStrategy;
 
+#[derive(Debug, Clone, Serialize)]
+pub struct KeepJobs {
+    pub count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age: Option<i32>,
+}
+
+impl Default for KeepJobs {
+    fn default() -> Self {
+        KeepJobs {
+            count: -1,
+            age: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum KeepJobsConfig {
+    Bool(bool),
+    Count(i32),
+    Spec {
+        #[serde(default)]
+        age: Option<i32>,
+        #[serde(default)]
+        count: Option<i32>,
+    },
+}
+
+impl KeepJobsConfig {
+    pub fn to_keep_jobs(&self) -> KeepJobs {
+        match self {
+            KeepJobsConfig::Bool(true) => KeepJobs {
+                count: 0,
+                age: None,
+            },
+            KeepJobsConfig::Bool(false) => KeepJobs::default(),
+            KeepJobsConfig::Count(n) => KeepJobs {
+                count: *n,
+                age: None,
+            },
+            KeepJobsConfig::Spec { age, count } => KeepJobs {
+                count: count.unwrap_or(-1),
+                age: *age,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobState {
     Waiting,
@@ -19,6 +68,12 @@ pub struct JobOptions {
     pub backoff: Option<BackoffStrategy>,
     #[serde(default)]
     pub delay: u64,
+    #[serde(default, rename = "removeOnComplete")]
+    pub remove_on_complete: Option<KeepJobsConfig>,
+    #[serde(default, rename = "removeOnFail")]
+    pub remove_on_fail: Option<KeepJobsConfig>,
+    #[serde(default)]
+    pub lifo: bool,
 }
 
 #[derive(Debug)]

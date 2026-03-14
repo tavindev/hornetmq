@@ -59,11 +59,19 @@ impl MoveToActive {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Limiter {
+    pub max: u32,
+    pub duration: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MoveToActiveArgs {
     pub token: String,
     #[serde(rename = "lockDuration")]
     pub lock_duration: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limiter: Option<Limiter>,
 }
 
 impl ToRedisArgs for MoveToActiveArgs {
@@ -78,9 +86,11 @@ impl ToRedisArgs for MoveToActiveArgs {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum MoveToActiveReturn<JobData> {
     Job(Job<JobData>),
     None,
+    RateLimited(u64),
 }
 
 impl<JobData: DeserializeOwned> FromRedisValue for MoveToActiveReturn<JobData> {
@@ -91,6 +101,11 @@ impl<JobData: DeserializeOwned> FromRedisValue for MoveToActiveReturn<JobData> {
             Value::Bulk(ref items) => match items.as_slice() {
                 [Value::Int(0), Value::Int(0), Value::Int(0), Value::Int(0)] => {
                     Ok(MoveToActiveReturn::None)
+                }
+                [Value::Int(0), Value::Int(0), Value::Int(expire), Value::Int(0)]
+                    if *expire > 0 =>
+                {
+                    Ok(MoveToActiveReturn::RateLimited(*expire as u64))
                 }
                 [Value::Bulk(raw_job), Value::Data(job_id), Value::Int(_), Value::Int(_)] => {
                     let mut job_builder: JobBuilder<JobData> = JobBuilder::new();
@@ -214,6 +229,7 @@ mod tests {
             .arg(MoveToActiveArgs {
                 token: "test".to_string(),
                 lock_duration: 10_000,
+                limiter: None,
             })
             .invoke(&mut redis);
 

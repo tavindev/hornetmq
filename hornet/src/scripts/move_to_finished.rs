@@ -1,3 +1,4 @@
+use crate::core::job::KeepJobs;
 use crate::generate_script_struct;
 use crate::queue_keys::QueueKeys;
 use anyhow::Result;
@@ -36,11 +37,6 @@ impl std::fmt::Display for MoveToFinishedTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct KeepJobs {
-    pub count: i32,
 }
 
 #[derive(Debug, Serialize)]

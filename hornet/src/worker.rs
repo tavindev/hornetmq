@@ -6,10 +6,9 @@ use crate::{
         retry::{next_retry_delay, should_retry},
     },
     scripts::{
-        move_to_active::{MoveToActive, MoveToActiveArgs, MoveToActiveReturn},
+        move_to_active::{Limiter, MoveToActive, MoveToActiveArgs, MoveToActiveReturn},
         move_to_finished::{
-            KeepJobs, MoveToFinished, MoveToFinishedArgs, MoveToFinishedReturn,
-            MoveToFinishedTarget,
+            MoveToFinished, MoveToFinishedArgs, MoveToFinishedReturn, MoveToFinishedTarget,
         },
         retry_job::{RetryJob, RetryJobReturn},
     },
@@ -73,7 +72,8 @@ fn move_to_delayed(client: &mut Client, prefix: &str, job_id: &str, token: &str,
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    let score = now + delay_ms;
+    let delayed_score = ((now + delay_ms) as u128) * 0x1000;
+    let marker_score = now + delay_ms;
 
     let active_key = format!("{prefix}active");
     let delayed_key = format!("{prefix}delayed");
@@ -99,11 +99,11 @@ fn move_to_delayed(client: &mut Client, prefix: &str, job_id: &str, token: &str,
         .arg(1)
         .query(client);
 
-    // Add to delayed sorted set with score = now + delay
-    let _: redis::RedisResult<u32> = client.zadd(&delayed_key, job_id, score as f64);
+    // Add to delayed sorted set with score = timestamp * 0x1000
+    let _: redis::RedisResult<u32> = client.zadd(&delayed_key, job_id, delayed_score as f64);
 
     // Set marker so delayed job promoter picks it up
-    let _: redis::RedisResult<u32> = client.zadd(&marker_key, "1", score as f64);
+    let _: redis::RedisResult<u32> = client.zadd(&marker_key, "0", marker_score as f64);
 }
 
 pub struct Worker<Data, Return>
@@ -123,6 +123,7 @@ where
     shutdown_flag: Arc<AtomicBool>,
     lock_duration: u64,
     default_backoff: Option<BackoffStrategy>,
+    limiter: Option<Limiter>,
 }
 
 impl<JobData, ReturnType> Worker<JobData, ReturnType>
@@ -152,7 +153,13 @@ where
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             lock_duration: DEFAULT_LOCK_DURATION,
             default_backoff: None,
+            limiter: None,
         }
+    }
+
+    pub fn with_limiter(mut self, max: u32, duration: u64) -> Self {
+        self.limiter = Some(Limiter { max, duration });
+        self
     }
 
     pub fn with_lock_duration(mut self, lock_duration: u64) -> Self {
@@ -181,6 +188,7 @@ where
         let process_fn = self.process_fn;
         let lock_duration = self.lock_duration;
         let default_backoff = self.default_backoff.clone();
+        let limiter = self.limiter.clone();
 
         tokio::spawn(async move {
             // Move to active script
@@ -190,6 +198,7 @@ where
                 MoveToActiveArgs {
                     token: token.clone(),
                     lock_duration: 10_000,
+                    limiter: limiter.clone(),
                 },
             ) {
                 match job {
@@ -202,6 +211,13 @@ where
                                 // Move job to completed
                                 let stringified_result = serde_json::to_string(&result).unwrap();
 
+                                let keep_jobs = job
+                                    .opts
+                                    .remove_on_complete
+                                    .as_ref()
+                                    .map(|k| k.to_keep_jobs())
+                                    .unwrap_or_default();
+
                                 match MOVE_TO_FINISHED.run(
                                     &prefix,
                                     &mut client,
@@ -210,7 +226,7 @@ where
                                     MoveToFinishedTarget::Completed,
                                     MoveToFinishedArgs {
                                         token: token.clone(),
-                                        keep_jobs: KeepJobs { count: -1 },
+                                        keep_jobs,
                                         lock_duration,
                                         max_attempts: job.opts.attempts,
                                         max_metrics_size: 100,
@@ -255,7 +271,7 @@ where
                                         );
                                     } else {
                                         // Immediate retry
-                                        match RETRY_JOB.run(&prefix, &mut client, &job.id, &token) {
+                                        match RETRY_JOB.run(&prefix, &mut client, &job.id, &token, job.opts.lifo) {
                                             Ok(RetryJobReturn::Ok) => {
                                                 emit_event(
                                                     &mut client,
@@ -271,6 +287,13 @@ where
                                     }
                                 } else {
                                     // Move job to failed
+                                    let keep_jobs = job
+                                        .opts
+                                        .remove_on_fail
+                                        .as_ref()
+                                        .map(|k| k.to_keep_jobs())
+                                        .unwrap_or_default();
+
                                     match MOVE_TO_FINISHED.run(
                                         &prefix,
                                         &mut client,
@@ -279,7 +302,7 @@ where
                                         MoveToFinishedTarget::Failed,
                                         MoveToFinishedArgs {
                                             token: token.clone(),
-                                            keep_jobs: KeepJobs { count: -1 },
+                                            keep_jobs,
                                             lock_duration,
                                             max_attempts: job.opts.attempts,
                                             max_metrics_size: 100,
@@ -306,6 +329,9 @@ where
                     MoveToActiveReturn::None => {
                         // No job to process
                         break;
+                    }
+                    MoveToActiveReturn::RateLimited(_) => {
+                        break; // will retry after marker wait
                     }
                 }
             }

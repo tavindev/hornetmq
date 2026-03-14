@@ -23,6 +23,8 @@ pub struct AddStandardJobOpts {
     pub attempts: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backoff: Option<crate::core::backoff::BackoffStrategy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifo: Option<bool>,
 }
 
 impl ToRedisArgs for AddStandardJobOpts {
@@ -35,7 +37,7 @@ impl ToRedisArgs for AddStandardJobOpts {
 }
 
 /// Build ARGV[1]: a msgpack array of 9 elements matching lua args[1]..args[9].
-fn build_argv1(prefix: &str, job_name: &str, timestamp: &str) -> Vec<u8> {
+fn build_argv1(prefix: &str, job_name: &str, timestamp: &str, custom_id: &str) -> Vec<u8> {
     use rmp::encode;
 
     let mut buf = Vec::new();
@@ -47,7 +49,7 @@ fn build_argv1(prefix: &str, job_name: &str, timestamp: &str) -> Vec<u8> {
     encode::write_str(&mut buf, prefix).unwrap();
 
     // args[2] = custom id ("" means auto-generate)
-    encode::write_str(&mut buf, "").unwrap();
+    encode::write_str(&mut buf, custom_id).unwrap();
 
     // args[3] = name
     encode::write_str(&mut buf, job_name).unwrap();
@@ -82,6 +84,7 @@ impl AddStandardJob {
         job_name: &str,
         data: &str,
         opts: AddStandardJobOpts,
+        custom_id: &str,
     ) -> Result<String> {
         let mut script = &mut self.0.prepare_invoke();
 
@@ -109,7 +112,7 @@ impl AddStandardJob {
             script = script.key(key)
         }
 
-        let argv1 = build_argv1(prefix, job_name, &timestamp);
+        let argv1 = build_argv1(prefix, job_name, &timestamp, custom_id);
 
         // ARGV[1] = msgpacked args array
         script = script.arg(argv1);

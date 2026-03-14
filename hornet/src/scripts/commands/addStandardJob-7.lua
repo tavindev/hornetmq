@@ -58,7 +58,9 @@ local parent = args[8]
 local parentData
 
 -- Includes
+--- @include "includes/addDelayMarkerIfNeeded"
 --- @include "includes/addJobInTargetList"
+--- @include "includes/addJobWithPriority"
 --- @include "includes/getOrSetMaxEvents"
 --- @include "includes/getTargetQueueList"
 --- @include "includes/storeJob"
@@ -100,14 +102,27 @@ storeJob(eventsKey, jobIdKey, jobId, args[3], ARGV[2], opts, timestamp,
          parentKey, parentData, repeatJobKey)
 
 local target, paused = getTargetQueueList(metaKey, KEYS[1], KEYS[2])
+local delay = opts['delay'] or 0
 
--- LIFO or FIFO
-local pushCmd = opts['lifo'] and 'RPUSH' or 'LPUSH'
-addJobInTargetList(target, KEYS[7], pushCmd, paused, jobId)
+local priority = opts['priority'] or 0
 
--- Emit waiting event
-rcall("XADD", eventsKey, "MAXLEN", "~", maxEvents, "*", "event", "waiting",
-      "jobId", jobId)
+if delay > 0 then
+    local delayedKey = args[1] .. "delayed"
+    local delayedTimestamp = (timestamp + delay) * 0x1000
+    rcall("ZADD", delayedKey, delayedTimestamp, jobId)
+    rcall("XADD", eventsKey, "MAXLEN", "~", maxEvents, "*", "event", "delayed", "jobId", jobId)
+    -- Set marker so worker wakes up at the right time
+    rcall("ZADD", KEYS[7], timestamp + delay, "0")
+elseif priority > 0 then
+    local prioritizedKey = args[1] .. "prioritized"
+    local priorityCounterKey = args[1] .. "pc"
+    addJobWithPriority(KEYS[7], prioritizedKey, priority, jobId, priorityCounterKey, paused)
+    rcall("XADD", eventsKey, "MAXLEN", "~", maxEvents, "*", "event", "waiting", "jobId", jobId)
+else
+    local pushCmd = opts['lifo'] and 'RPUSH' or 'LPUSH'
+    addJobInTargetList(target, KEYS[7], pushCmd, paused, jobId)
+    rcall("XADD", eventsKey, "MAXLEN", "~", maxEvents, "*", "event", "waiting", "jobId", jobId)
+end
 
 -- Check if this job is a child of another job, if so add it to the parents dependencies
 if parentDependenciesKey ~= nil then

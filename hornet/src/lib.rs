@@ -9,8 +9,9 @@ pub mod worker;
 // Re-export core types at crate root
 pub use core::backoff::BackoffStrategy;
 pub use core::job;
-pub use core::job::Job;
-pub use queue::Queue;
+pub use core::job::{Job, KeepJobs, KeepJobsConfig};
+pub use queue::{AddJobOptions, JobCounts, Queue, RawJob};
+pub use scripts::move_to_active::Limiter;
 pub use worker::Worker;
 
 pub use hornetmq_macros::worker;

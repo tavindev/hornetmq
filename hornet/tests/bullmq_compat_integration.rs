@@ -230,11 +230,34 @@ async fn hornet_reads_bullmq_created_job() {
     assert!(result.is_ok());
 
     let prefix = prefix_for(&queue_name);
+
+    // removeOnComplete:true means the job is removed from the completed set after processing.
+    // Verify it was processed by checking that wait and active are empty (job was consumed).
+    let wait_key = format!("{prefix}wait");
+    let active_key = format!("{prefix}active");
+    let wait_len: u64 = redis::cmd("LLEN")
+        .arg(&wait_key)
+        .query(&mut conn)
+        .unwrap();
+    let active_len: u64 = redis::cmd("LLEN")
+        .arg(&active_key)
+        .query(&mut conn)
+        .unwrap();
+    assert_eq!(
+        wait_len, 0,
+        "Wait list should be empty after job is processed"
+    );
+    assert_eq!(
+        active_len, 0,
+        "Active list should be empty after job is processed"
+    );
+
+    // With removeOnComplete:true, the completed set should be empty too
     let completed_key = format!("{prefix}completed");
     let members: Vec<String> = conn.zrange(&completed_key, 0, -1).unwrap();
     assert!(
-        !members.is_empty(),
-        "HornetMQ should have completed the BullMQ-created job, completed set: {members:?}"
+        members.is_empty(),
+        "With removeOnComplete:true, completed set should be empty, got: {members:?}"
     );
 
     cleanup_queue(&mut conn, &queue_name);
