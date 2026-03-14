@@ -2,8 +2,6 @@
 
 A fast, Redis-backed job queue for Rust. **Fully compatible with [BullMQ](https://docs.bullmq.io/)** — use Hornet as a worker/producer alongside existing BullMQ (Node.js) producers/workers, or use it standalone.
 
-> **Status:** Work in progress. Not ready for production use.
-
 ## Features
 
 - **Queue** (producer) — enqueue jobs with priority, delay, retry options
