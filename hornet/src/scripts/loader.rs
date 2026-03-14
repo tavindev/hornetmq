@@ -11,22 +11,6 @@ lazy_static! {
         Regex::new(r#"(?m)^[-]{2,3}[ \t]*@include[ \t]["']+([^; \t\n]*)["'];?[ \t]?"#).unwrap();
 }
 
-#[derive(Debug)]
-struct ScriptName(String);
-
-impl ScriptName {
-    fn new(name: &str) -> Result<Self, ScriptLoaderError> {
-        if !name.ends_with(".lua") {
-            return Err(ScriptLoaderError::IoError(format!(
-                "Script name must end with .lua, got {}",
-                name
-            )));
-        }
-
-        Ok(Self(name.to_string()))
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum ScriptLoaderError {
     CircularDependency,
@@ -112,7 +96,7 @@ fn resolve_dependencies(
         let include_path = if include.ends_with(".lua") {
             script_dir.join(include)
         } else {
-            script_dir.join(format!("{}.lua", include))
+            script_dir.join(format!("{include}.lua"))
         };
 
         let token = get_path_hash(&include_path);

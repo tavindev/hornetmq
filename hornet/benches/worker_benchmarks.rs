@@ -26,9 +26,9 @@ fn unique_queue() -> String {
 fn cleanup(queue_name: &str) {
     let client = redis::Client::open("redis://localhost:6379").unwrap();
     let mut conn = client.get_connection().unwrap();
-    let prefix = format!("bull:{}:", queue_name);
+    let prefix = format!("bull:{queue_name}:");
     let keys: Vec<String> = redis::cmd("KEYS")
-        .arg(format!("{}*", prefix))
+        .arg(format!("{prefix}*"))
         .query(&mut conn)
         .unwrap_or_default();
     for key in keys {
@@ -77,10 +77,9 @@ fn bench_worker_throughput(c: &mut Criterion) {
 
                         tokio::spawn(async move {
                             loop {
-                                let client =
-                                    redis::Client::open("redis://localhost:6379").unwrap();
+                                let client = redis::Client::open("redis://localhost:6379").unwrap();
                                 let mut conn = client.get_connection().unwrap();
-                                let key = format!("bull:{}:completed", qn);
+                                let key = format!("bull:{qn}:completed");
                                 let count: u64 = conn.zcard(&key).unwrap_or(0);
                                 if count >= job_count {
                                     shutdown.store(true, Ordering::SeqCst);
@@ -134,5 +133,9 @@ fn bench_worker_startup_shutdown(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_worker_throughput, bench_worker_startup_shutdown);
+criterion_group!(
+    benches,
+    bench_worker_throughput,
+    bench_worker_startup_shutdown
+);
 criterion_main!(benches);

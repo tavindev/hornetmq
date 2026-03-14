@@ -47,6 +47,12 @@ pub struct JobBuilder<Data> {
     attempts_made: Option<u32>,
 }
 
+impl<Data> Default for JobBuilder<Data> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Data> JobBuilder<Data> {
     pub fn new() -> Self {
         JobBuilder {

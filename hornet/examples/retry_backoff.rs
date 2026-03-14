@@ -25,7 +25,10 @@ static ATTEMPT_COUNT: AtomicU32 = AtomicU32::new(0);
 
 fn flaky_processor(job: &Job<Task>) -> Result<String> {
     let attempt = ATTEMPT_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
-    println!("[job {}] Attempt {attempt} for \"{}\"", job.id, job.data.name);
+    println!(
+        "[job {}] Attempt {attempt} for \"{}\"",
+        job.id, job.data.name
+    );
 
     if attempt < 3 {
         println!("[job {}] Failed! Will retry with backoff...", job.id);

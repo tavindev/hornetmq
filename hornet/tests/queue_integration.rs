@@ -9,18 +9,30 @@ fn unique_queue_name() -> String {
 fn cleanup_queue(queue_name: &str) {
     let client = redis::Client::open("redis://localhost:6379").unwrap();
     let mut con = client.get_connection().unwrap();
-    let prefix = format!("bull:{}:", queue_name);
+    let prefix = format!("bull:{queue_name}:");
 
     let suffixes = [
-        "wait", "paused", "meta", "id", "completed", "events", "marker",
-        "active", "prioritized", "stalled", "limiter", "delayed", "pc", "metrics",
+        "wait",
+        "paused",
+        "meta",
+        "id",
+        "completed",
+        "events",
+        "marker",
+        "active",
+        "prioritized",
+        "stalled",
+        "limiter",
+        "delayed",
+        "pc",
+        "metrics",
     ];
 
-    let keys: Vec<String> = suffixes.iter().map(|s| format!("{}{}", prefix, s)).collect();
+    let keys: Vec<String> = suffixes.iter().map(|s| format!("{prefix}{s}")).collect();
 
     // Also delete any job keys (bull:queue_name:1, bull:queue_name:2, etc.)
     let job_keys: Vec<String> = redis::cmd("KEYS")
-        .arg(format!("{}[0-9]*", prefix))
+        .arg(format!("{prefix}[0-9]*"))
         .query(&mut con)
         .unwrap_or_default();
 
@@ -51,7 +63,7 @@ fn test_add_job() {
     // Verify job exists in Redis
     let client = redis::Client::open("redis://localhost:6379").unwrap();
     let mut con = client.get_connection().unwrap();
-    let job_key = format!("bull:{}:{}", queue_name, job_id);
+    let job_key = format!("bull:{queue_name}:{job_id}");
 
     let name: String = con.hget(&job_key, "name").expect("missing name field");
     assert_eq!(name, "my-job");
@@ -66,7 +78,7 @@ fn test_add_job() {
     assert!(opts.is_object());
 
     // Job should be in the wait list
-    let wait_key = format!("bull:{}:wait", queue_name);
+    let wait_key = format!("bull:{queue_name}:wait");
     let wait_members: Vec<String> = con.lrange(&wait_key, 0, -1).unwrap();
     assert!(wait_members.contains(&job_id));
 
@@ -93,7 +105,7 @@ fn test_add_job_with_delay() {
     let mut con = client.get_connection().unwrap();
 
     // Job data should exist
-    let job_key = format!("bull:{}:{}", queue_name, job_id);
+    let job_key = format!("bull:{queue_name}:{job_id}");
     let name: String = con.hget(&job_key, "name").expect("missing name field");
     assert_eq!(name, "delayed-job");
 
@@ -124,12 +136,14 @@ fn test_add_job_with_priority() {
     let mut con = client.get_connection().unwrap();
 
     // Job data should exist
-    let job_key = format!("bull:{}:{}", queue_name, job_id);
+    let job_key = format!("bull:{queue_name}:{job_id}");
     let name: String = con.hget(&job_key, "name").expect("missing name field");
     assert_eq!(name, "priority-job");
 
     // Priority should be stored on the job hash
-    let priority: String = con.hget(&job_key, "priority").expect("missing priority field");
+    let priority: String = con
+        .hget(&job_key, "priority")
+        .expect("missing priority field");
     assert_eq!(priority, "10");
 
     cleanup_queue(&queue_name);
@@ -141,19 +155,25 @@ fn test_add_job_default_options() {
     let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
 
     let job_id = queue
-        .add("default-opts-job", "simple string data", AddJobOptions::default())
+        .add(
+            "default-opts-job",
+            "simple string data",
+            AddJobOptions::default(),
+        )
         .expect("failed to add job with default opts");
 
     let client = redis::Client::open("redis://localhost:6379").unwrap();
     let mut con = client.get_connection().unwrap();
 
-    let job_key = format!("bull:{}:{}", queue_name, job_id);
+    let job_key = format!("bull:{queue_name}:{job_id}");
 
     // Verify defaults: delay=0, priority=0
     let delay: String = con.hget(&job_key, "delay").expect("missing delay field");
     assert_eq!(delay, "0");
 
-    let priority: String = con.hget(&job_key, "priority").expect("missing priority field");
+    let priority: String = con
+        .hget(&job_key, "priority")
+        .expect("missing priority field");
     assert_eq!(priority, "0");
 
     // Verify timestamp exists and is reasonable
@@ -162,7 +182,7 @@ fn test_add_job_default_options() {
     assert!(ts > 0);
 
     // Verify the job is in the wait list (not delayed or prioritized)
-    let wait_key = format!("bull:{}:wait", queue_name);
+    let wait_key = format!("bull:{queue_name}:wait");
     let wait_members: Vec<String> = con.lrange(&wait_key, 0, -1).unwrap();
     assert!(wait_members.contains(&job_id));
 

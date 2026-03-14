@@ -9,7 +9,7 @@ struct ProcessorData {
 }
 
 fn test_processor(job: &Job<ProcessorData>) -> Result<String> {
-    println!("Processing: {:?}", job);
+    println!("Processing: {job:?}");
 
     Ok("Done".to_string())
 }

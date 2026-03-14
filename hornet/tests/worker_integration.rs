@@ -16,7 +16,7 @@ fn unique_queue_name() -> String {
 }
 
 fn prefix_for(queue_name: &str) -> String {
-    format!("bull:{}:", queue_name)
+    format!("bull:{queue_name}:")
 }
 
 /// Add a job to Redis manually, simulating a producer.
@@ -28,10 +28,10 @@ fn add_job_to_redis(
     opts_json: &str,
 ) {
     let prefix = prefix_for(queue_name);
-    let job_key = format!("{}{}", prefix, job_id);
-    let wait_key = format!("{}wait", prefix);
-    let marker_key = format!("{}marker", prefix);
-    let meta_key = format!("{}meta", prefix);
+    let job_key = format!("{prefix}{job_id}");
+    let wait_key = format!("{prefix}wait");
+    let marker_key = format!("{prefix}marker");
+    let meta_key = format!("{prefix}meta");
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -81,7 +81,7 @@ fn add_job_to_redis(
 fn cleanup_queue(conn: &mut redis::Connection, queue_name: &str) {
     let prefix = prefix_for(queue_name);
     let keys: Vec<String> = redis::cmd("KEYS")
-        .arg(format!("{}*", prefix))
+        .arg(format!("{prefix}*"))
         .query(conn)
         .unwrap_or_default();
 
@@ -111,13 +111,7 @@ async fn test_worker_processes_job() {
     let data = TestData {
         value: "hello".into(),
     };
-    add_job_to_redis(
-        &mut conn,
-        &queue_name,
-        job_id,
-        &data,
-        r#"{"attempts": 1}"#,
-    );
+    add_job_to_redis(&mut conn, &queue_name, job_id, &data, r#"{"attempts": 1}"#);
 
     let mut worker = Worker::new(
         queue_name.clone(),
@@ -129,9 +123,7 @@ async fn test_worker_processes_job() {
     let shutdown = worker.shutdown_flag();
 
     // Run worker in background, shut down after a short delay
-    let handle = tokio::spawn(async move {
-        worker.run().await
-    });
+    let handle = tokio::spawn(async move { worker.run().await });
 
     // Give worker time to process
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -142,12 +134,11 @@ async fn test_worker_processes_job() {
 
     // Verify job is in completed set
     let prefix = prefix_for(&queue_name);
-    let completed_key = format!("{}completed", prefix);
+    let completed_key = format!("{prefix}completed");
     let members: Vec<String> = conn.zrange(&completed_key, 0, -1).unwrap();
     assert!(
         members.contains(&job_id.to_string()),
-        "Job should be in completed set, got: {:?}",
-        members
+        "Job should be in completed set, got: {members:?}"
     );
 
     cleanup_queue(&mut conn, &queue_name);
@@ -184,9 +175,7 @@ async fn test_worker_retries_with_backoff() {
 
     let shutdown = worker.shutdown_flag();
 
-    let handle = tokio::spawn(async move {
-        worker.run().await
-    });
+    let handle = tokio::spawn(async move { worker.run().await });
 
     // Give worker time to process the first attempt and move to delayed
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -196,22 +185,20 @@ async fn test_worker_retries_with_backoff() {
     assert!(result.is_ok());
 
     let prefix = prefix_for(&queue_name);
-    let delayed_key = format!("{}delayed", prefix);
+    let delayed_key = format!("{prefix}delayed");
 
     // Job should be in the delayed set (waiting for backoff)
     let delayed_members: Vec<String> = conn.zrange(&delayed_key, 0, -1).unwrap();
 
     // It could also have been re-processed and moved to failed if enough time passed.
     // Check either delayed or failed.
-    let failed_key = format!("{}failed", prefix);
+    let failed_key = format!("{prefix}failed");
     let failed_members: Vec<String> = conn.zrange(&failed_key, 0, -1).unwrap();
 
     assert!(
         delayed_members.contains(&job_id.to_string())
             || failed_members.contains(&job_id.to_string()),
-        "Job should be in delayed or failed set. delayed={:?}, failed={:?}",
-        delayed_members,
-        failed_members
+        "Job should be in delayed or failed set. delayed={delayed_members:?}, failed={failed_members:?}"
     );
 
     cleanup_queue(&mut conn, &queue_name);
@@ -231,9 +218,7 @@ async fn test_worker_graceful_shutdown() {
 
     let shutdown = worker.shutdown_flag();
 
-    let handle = tokio::spawn(async move {
-        worker.run().await
-    });
+    let handle = tokio::spawn(async move { worker.run().await });
 
     // Trigger shutdown immediately
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -265,13 +250,7 @@ async fn test_worker_fails_after_max_attempts() {
         value: "fail-me".into(),
     };
     // attempts=2, no backoff (immediate retry)
-    add_job_to_redis(
-        &mut conn,
-        &queue_name,
-        job_id,
-        &data,
-        r#"{"attempts": 2}"#,
-    );
+    add_job_to_redis(&mut conn, &queue_name, job_id, &data, r#"{"attempts": 2}"#);
 
     let mut worker = Worker::new(
         queue_name.clone(),
@@ -282,9 +261,7 @@ async fn test_worker_fails_after_max_attempts() {
 
     let shutdown = worker.shutdown_flag();
 
-    let handle = tokio::spawn(async move {
-        worker.run().await
-    });
+    let handle = tokio::spawn(async move { worker.run().await });
 
     // Give worker time to process both attempts
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -295,12 +272,11 @@ async fn test_worker_fails_after_max_attempts() {
 
     // Verify job ends up in failed set
     let prefix = prefix_for(&queue_name);
-    let failed_key = format!("{}failed", prefix);
+    let failed_key = format!("{prefix}failed");
     let members: Vec<String> = conn.zrange(&failed_key, 0, -1).unwrap();
     assert!(
         members.contains(&job_id.to_string()),
-        "Job should be in failed set, got: {:?}",
-        members
+        "Job should be in failed set, got: {members:?}"
     );
 
     cleanup_queue(&mut conn, &queue_name);
@@ -322,17 +298,11 @@ async fn test_stall_detection() {
     };
 
     // Add job hash
-    add_job_to_redis(
-        &mut conn,
-        &queue_name,
-        job_id,
-        &data,
-        r#"{"attempts": 3}"#,
-    );
+    add_job_to_redis(&mut conn, &queue_name, job_id, &data, r#"{"attempts": 3}"#);
 
     // Manually move job from wait to active (simulating it was picked up but stalled)
-    let wait_key = format!("{}wait", prefix);
-    let active_key = format!("{}active", prefix);
+    let wait_key = format!("{prefix}wait");
+    let active_key = format!("{prefix}active");
 
     // Remove from wait, add to active
     let _: u32 = conn.lrem(&wait_key, 0, job_id).unwrap();
@@ -351,9 +321,7 @@ async fn test_stall_detection() {
 
     let shutdown = worker.shutdown_flag();
 
-    let handle = tokio::spawn(async move {
-        worker.run().await
-    });
+    let handle = tokio::spawn(async move { worker.run().await });
 
     // Stall checker runs at lock_duration/2 = 1s with our short lock duration.
     // Wait long enough for at least one stall check cycle + processing.
@@ -366,7 +334,7 @@ async fn test_stall_detection() {
     // Check that it's no longer stuck in active without a lock.
     let active_members: Vec<String> = conn.lrange(&active_key, 0, -1).unwrap();
     let wait_members: Vec<String> = conn.lrange(&wait_key, 0, -1).unwrap();
-    let completed_key = format!("{}completed", prefix);
+    let completed_key = format!("{prefix}completed");
     let completed_members: Vec<String> = conn.zrange(&completed_key, 0, -1).unwrap();
 
     // It should have been detected as stalled and re-queued, then potentially processed
@@ -376,8 +344,7 @@ async fn test_stall_detection() {
 
     assert!(
         is_resolved,
-        "Stalled job should be re-queued or completed. active={:?}, wait={:?}, completed={:?}",
-        active_members, wait_members, completed_members
+        "Stalled job should be re-queued or completed. active={active_members:?}, wait={wait_members:?}, completed={completed_members:?}"
     );
 
     cleanup_queue(&mut conn, &queue_name);

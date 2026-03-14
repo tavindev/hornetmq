@@ -39,9 +39,9 @@ impl QueueKeys {
     }
 }
 
-impl Into<String> for QueueKeys {
-    fn into(self) -> String {
-        self.to_string()
+impl From<QueueKeys> for String {
+    fn from(val: QueueKeys) -> Self {
+        val.to_string()
     }
 }
 

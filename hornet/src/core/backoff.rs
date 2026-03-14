@@ -35,10 +35,10 @@ mod tests {
             base: 1000,
             max: 60_000,
         };
-        assert_eq!(compute_delay(&strategy, 1), 1000);  // 1000 * 2^0
-        assert_eq!(compute_delay(&strategy, 2), 2000);  // 1000 * 2^1
-        assert_eq!(compute_delay(&strategy, 3), 4000);  // 1000 * 2^2
-        assert_eq!(compute_delay(&strategy, 4), 8000);  // 1000 * 2^3
+        assert_eq!(compute_delay(&strategy, 1), 1000); // 1000 * 2^0
+        assert_eq!(compute_delay(&strategy, 2), 2000); // 1000 * 2^1
+        assert_eq!(compute_delay(&strategy, 3), 4000); // 1000 * 2^2
+        assert_eq!(compute_delay(&strategy, 4), 8000); // 1000 * 2^3
     }
 
     #[test]

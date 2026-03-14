@@ -56,7 +56,7 @@ enum TaskEvent {
 type ProcessFn<Data, Return> = fn(&Job<Data>) -> Result<Return>;
 
 fn emit_event(client: &mut Client, prefix: &str, event: JobEvent, job_id: &str) {
-    let events_key = format!("{}events", prefix);
+    let events_key = format!("{prefix}events");
     let _: redis::RedisResult<String> = redis::cmd("XADD")
         .arg(&events_key)
         .arg("*")
@@ -74,11 +74,11 @@ fn move_to_delayed(client: &mut Client, prefix: &str, job_id: &str, token: &str,
         .as_millis() as u64;
     let score = now + delay_ms;
 
-    let active_key = format!("{}active", prefix);
-    let delayed_key = format!("{}delayed", prefix);
-    let job_key = format!("{}{}", prefix, job_id);
-    let lock_key = format!("{}:lock", job_key);
-    let marker_key = format!("{}marker", prefix);
+    let active_key = format!("{prefix}active");
+    let delayed_key = format!("{prefix}delayed");
+    let job_key = format!("{prefix}{job_id}");
+    let lock_key = format!("{job_key}:lock");
+    let marker_key = format!("{prefix}marker");
 
     // Remove lock
     let lock_val: redis::RedisResult<String> = client.get(&lock_key);
@@ -173,7 +173,7 @@ where
         let process_fn = self.process_fn;
         let lock_duration = self.lock_duration;
 
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             // Move to active script
             while let Ok(job) = MOVE_TO_ACTIVE.run::<JobData>(
                 &prefix,
@@ -218,7 +218,7 @@ where
                                         );
                                     }
                                     res => {
-                                        println!("Error moving job to completed: {:?}", res);
+                                        println!("Error moving job to completed: {res:?}");
                                     }
                                 }
                             }
@@ -226,8 +226,7 @@ where
                                 let attempts_made = job.attempts_made.unwrap_or(0) + 1;
 
                                 if should_retry(attempts_made, job.opts.attempts) {
-                                    let delay =
-                                        next_retry_delay(&job.opts.backoff, attempts_made);
+                                    let delay = next_retry_delay(&job.opts.backoff, attempts_made);
 
                                     if delay > 0 {
                                         // Move to delayed set with backoff delay
@@ -246,12 +245,7 @@ where
                                         );
                                     } else {
                                         // Immediate retry
-                                        match RETRY_JOB.run(
-                                            &prefix,
-                                            &mut client,
-                                            &job.id,
-                                            &token,
-                                        ) {
+                                        match RETRY_JOB.run(&prefix, &mut client, &job.id, &token) {
                                             Ok(RetryJobReturn::Ok) => {
                                                 emit_event(
                                                     &mut client,
@@ -261,7 +255,7 @@ where
                                                 );
                                             }
                                             res => {
-                                                println!("Error retrying job: {:?}", res);
+                                                println!("Error retrying job: {res:?}");
                                             }
                                         }
                                     }
@@ -292,7 +286,7 @@ where
                                             );
                                         }
                                         res => {
-                                            println!("Error moving job to failed: {:?}", res);
+                                            println!("Error moving job to failed: {res:?}");
                                         }
                                     }
                                 }
@@ -332,7 +326,7 @@ where
                     Err(_) => continue,
                 };
 
-                let active_key = format!("{}active", prefix);
+                let active_key = format!("{prefix}active");
 
                 // Get all job IDs in the active list
                 let active_jobs: Vec<String> = match conn.lrange(&active_key, 0, -1) {
@@ -341,54 +335,41 @@ where
                 };
 
                 for job_id in active_jobs {
-                    let lock_key = format!("{}{}:lock", prefix, job_id);
+                    let lock_key = format!("{prefix}{job_id}:lock");
                     let exists: bool = conn.exists(&lock_key).unwrap_or(true);
 
                     if !exists {
                         // Job is stalled - lock expired but still in active list
-                        emit_event(
-                            &mut client.clone(),
-                            &prefix,
-                            JobEvent::Stalled,
-                            &job_id,
-                        );
+                        emit_event(&mut client.clone(), &prefix, JobEvent::Stalled, &job_id);
 
                         // Check attempts to decide retry vs fail
-                        let job_key = format!("{}{}", prefix, job_id);
-                        let atm: u32 = conn
-                            .hget::<_, _, u32>(&job_key, "atm")
-                            .unwrap_or(0);
-                        let opts_str: String =
-                            match conn.hget(&job_key, "opts") {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
+                        let job_key = format!("{prefix}{job_id}");
+                        let atm: u32 = conn.hget::<_, _, u32>(&job_key, "atm").unwrap_or(0);
+                        let opts_str: String = match conn.hget(&job_key, "opts") {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
                         let opts: std::result::Result<crate::core::job::JobOptions, _> =
                             serde_json::from_str(&opts_str);
                         let max_attempts = opts.as_ref().map(|o| o.attempts).unwrap_or(1);
 
                         if should_retry(atm, max_attempts) {
                             // Re-queue: remove from active, push to wait
-                            let wait_key = format!("{}wait", prefix);
-                            let _: redis::RedisResult<u32> =
-                                conn.lrem(&active_key, 0, &job_id);
-                            let _: redis::RedisResult<u32> =
-                                conn.lpush(&wait_key, &job_id);
-                            let _: redis::RedisResult<u32> =
-                                redis::cmd("HINCRBY")
-                                    .arg(&job_key)
-                                    .arg("atm")
-                                    .arg(1)
-                                    .query(&mut conn);
+                            let wait_key = format!("{prefix}wait");
+                            let _: redis::RedisResult<u32> = conn.lrem(&active_key, 0, &job_id);
+                            let _: redis::RedisResult<u32> = conn.lpush(&wait_key, &job_id);
+                            let _: redis::RedisResult<u32> = redis::cmd("HINCRBY")
+                                .arg(&job_key)
+                                .arg("atm")
+                                .arg(1)
+                                .query(&mut conn);
                             // Set marker to wake worker
-                            let marker_key = format!("{}marker", prefix);
-                            let _: redis::RedisResult<u32> =
-                                conn.zadd(&marker_key, "1", 0.0);
+                            let marker_key = format!("{prefix}marker");
+                            let _: redis::RedisResult<u32> = conn.zadd(&marker_key, "1", 0.0);
                         } else {
                             // Move to failed
-                            let failed_key = format!("{}failed", prefix);
-                            let _: redis::RedisResult<u32> =
-                                conn.lrem(&active_key, 0, &job_id);
+                            let failed_key = format!("{prefix}failed");
+                            let _: redis::RedisResult<u32> = conn.lrem(&active_key, 0, &job_id);
                             let now = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap()
@@ -403,12 +384,7 @@ where
                                 .arg(now.to_string())
                                 .query(&mut conn);
 
-                            emit_event(
-                                &mut client.clone(),
-                                &prefix,
-                                JobEvent::Failed,
-                                &job_id,
-                            );
+                            emit_event(&mut client.clone(), &prefix, JobEvent::Failed, &job_id);
                         }
                     }
                 }

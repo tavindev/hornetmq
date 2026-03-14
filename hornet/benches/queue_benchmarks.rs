@@ -17,9 +17,9 @@ fn unique_queue() -> String {
 fn cleanup(queue_name: &str) {
     let client = redis::Client::open("redis://localhost:6379").unwrap();
     let mut conn = client.get_connection().unwrap();
-    let prefix = format!("bull:{}:", queue_name);
+    let prefix = format!("bull:{queue_name}:");
     let keys: Vec<String> = redis::cmd("KEYS")
-        .arg(format!("{}*", prefix))
+        .arg(format!("{prefix}*"))
         .query(&mut conn)
         .unwrap_or_default();
     for key in keys {

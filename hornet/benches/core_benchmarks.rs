@@ -1,8 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use hornetmq::core::{
     backoff::{self, BackoffStrategy},
-    retry,
-    stall,
+    retry, stall,
 };
 
 fn bench_compute_delay_fixed(c: &mut Criterion) {
@@ -37,9 +36,7 @@ fn bench_should_retry(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{attempts_made}_of_{max}")),
             &(attempts_made, max),
-            |b, &(made, max)| {
-                b.iter(|| retry::should_retry(black_box(made), black_box(max)))
-            },
+            |b, &(made, max)| b.iter(|| retry::should_retry(black_box(made), black_box(max))),
         );
     }
     group.finish();

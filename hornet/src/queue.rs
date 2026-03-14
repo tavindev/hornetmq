@@ -11,22 +11,12 @@ lazy_static! {
     static ref ADD_STANDARD_JOB: AddStandardJob = AddStandardJob::new();
 }
 
+#[derive(Default)]
 pub struct AddJobOptions {
     pub delay: Option<u64>,
     pub priority: Option<u32>,
     pub attempts: Option<u32>,
     pub backoff: Option<BackoffStrategy>,
-}
-
-impl Default for AddJobOptions {
-    fn default() -> Self {
-        AddJobOptions {
-            delay: None,
-            priority: None,
-            attempts: None,
-            backoff: None,
-        }
-    }
 }
 
 pub struct Queue {

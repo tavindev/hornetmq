@@ -16,7 +16,6 @@ hornetmq-macros = { version = "0.1.0", path = "../hornet-macros" }
 tokio = { version = "1.33", features = ["full"] }
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.113"
-mini-redis = "0.4.1"
 rmp = "0.8.12"
 quote = "1.0.35"
 regex = "1.10.3"

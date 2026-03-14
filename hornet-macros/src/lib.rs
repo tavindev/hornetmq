@@ -1,16 +1,14 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
-    parse_macro_input,
-    punctuated::Punctuated,
-    token::Comma,
-    Attribute, FnArg, ItemFn,
+    parse_macro_input, ItemFn,
 };
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct WorkerOpts {
     concurrency: u32,
     retry: u32,
@@ -69,7 +67,7 @@ impl Parse for WorkerOpts {
                     _ => {
                         return Err(syn::Error::new(
                             ident.span(),
-                            format!("unexpected option: {}", ident),
+                            format!("unexpected option: {ident}"),
                         ))
                     }
                 }
@@ -88,12 +86,11 @@ impl Parse for WorkerOpts {
 
 #[proc_macro_attribute]
 pub fn worker(args: TokenStream, input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as WorkerOpts);
+    let _args = parse_macro_input!(args as WorkerOpts);
 
     let item = parse_macro_input!(input as ItemFn);
     let function_name = &item.sig.ident;
     let fn_body = &item.block;
-    let params = &item.sig.inputs;
 
     let expanded = quote! {
         mod #function_name {
