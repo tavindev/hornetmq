@@ -116,7 +116,7 @@ fn success_processor(job: &Job<TestData>) -> Result<String> {
 #[test]
 fn hornet_job_readable_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let job_id = queue
         .add(
@@ -140,7 +140,7 @@ fn hornet_job_readable_by_bullmq() {
 #[test]
 fn hornet_job_with_backoff_readable_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let job_id = queue
         .add(
@@ -170,7 +170,7 @@ fn hornet_job_with_backoff_readable_by_bullmq() {
 #[test]
 fn hornet_job_consumable_by_bullmq_worker() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     queue
         .add(
@@ -216,10 +216,11 @@ async fn hornet_reads_bullmq_created_job() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
@@ -281,10 +282,11 @@ async fn hornet_reads_bullmq_job_without_backoff() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
@@ -324,10 +326,11 @@ async fn hornet_reads_bullmq_job_minimal_opts() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });

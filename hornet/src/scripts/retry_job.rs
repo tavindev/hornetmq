@@ -31,20 +31,20 @@ impl RetryJob {
     pub fn run(
         &self,
         prefix: &str,
-        mut client: &mut redis::Client,
+        con: &mut impl redis::ConnectionLike,
         job_id: &str,
         token: &str,
         lifo: bool,
     ) -> Result<RetryJobReturn> {
         let mut script = &mut self.0.prepare_invoke();
 
-        let timestamp = SystemTime::now()
+        let timestamp = (SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_millis()
+            .as_millis() as u64)
             .to_string();
 
-        let keys: Vec<String> = [
+        for key in [
             QueueKeys::Active,
             QueueKeys::Wait,
             QueueKeys::Paused,
@@ -55,13 +55,8 @@ impl RetryJob {
             QueueKeys::Prioritized,
             QueueKeys::Pc,
             QueueKeys::Marker,
-        ]
-        .iter()
-        .map(|s| s.with_prefix(prefix))
-        .collect();
-
-        for key in keys {
-            script = script.key(key)
+        ] {
+            script = script.key(key.with_prefix(prefix));
         }
 
         let push_cmd = if lifo { "RPUSH" } else { "LPUSH" };
@@ -72,7 +67,7 @@ impl RetryJob {
             .arg(push_cmd)
             .arg(job_id)
             .arg(token)
-            .invoke::<RetryJobReturn>(&mut client)?;
+            .invoke::<RetryJobReturn>(con)?;
 
         Ok(res)
     }

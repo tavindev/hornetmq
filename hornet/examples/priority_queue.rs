@@ -32,10 +32,10 @@ fn alert_handler(job: &Job<Alert>) -> Result<String> {
 
 #[tokio::main]
 async fn main() {
-    let redis_url = "redis://localhost:6379".to_string();
-    let queue_name = "alerts".to_string();
+    let redis_url = "redis://localhost:6379";
+    let queue_name = "alerts";
 
-    let mut queue = Queue::new(queue_name.clone(), redis_url.clone());
+    let mut queue = Queue::new(queue_name, redis_url).unwrap();
 
     // Enqueue with different priorities (lower = processed first)
     let alerts = vec![
@@ -67,7 +67,7 @@ async fn main() {
     println!("\nProcessing (critical first, then warning, then info):\n");
 
     // Process with concurrency=1 to see priority ordering
-    let mut worker = Worker::new(queue_name, redis_url, 1, alert_handler);
+    let mut worker = Worker::new(queue_name, redis_url, 1, alert_handler).unwrap();
     let shutdown = worker.shutdown_flag();
 
     tokio::spawn(async move {

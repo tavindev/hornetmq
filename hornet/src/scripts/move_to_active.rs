@@ -17,18 +17,18 @@ impl MoveToActive {
     pub fn run<JobData: DeserializeOwned>(
         &self,
         prefix: &str,
-        mut client: &mut redis::Client,
+        con: &mut impl redis::ConnectionLike,
         opts: MoveToActiveArgs,
     ) -> Result<MoveToActiveReturn<JobData>> {
         let mut script = &mut self.0.prepare_invoke();
 
-        let timestamp = SystemTime::now()
+        let timestamp = (SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_millis()
+            .as_millis() as u64)
             .to_string();
 
-        let keys: Vec<String> = [
+        for key in [
             QueueKeys::Wait,
             QueueKeys::Active,
             QueueKeys::Prioritized,
@@ -40,20 +40,15 @@ impl MoveToActive {
             QueueKeys::Meta,
             QueueKeys::Pc,
             QueueKeys::Marker,
-        ]
-        .iter()
-        .map(|s| s.with_prefix(prefix))
-        .collect();
-
-        for key in keys {
-            script = script.key(key)
+        ] {
+            script = script.key(key.with_prefix(prefix));
         }
 
         let res = script
             .arg(prefix)
             .arg(timestamp)
             .arg(opts)
-            .invoke::<MoveToActiveReturn<JobData>>(&mut client)?;
+            .invoke::<MoveToActiveReturn<JobData>>(con)?;
 
         Ok(res)
     }
@@ -80,7 +75,7 @@ impl ToRedisArgs for MoveToActiveArgs {
         W: ?Sized + redis::RedisWrite,
     {
         rmp_serde::encode::to_vec_named(self)
-            .unwrap()
+            .expect("MoveToActiveArgs serialization should never fail")
             .write_redis_args(out)
     }
 }
@@ -91,6 +86,22 @@ pub enum MoveToActiveReturn<JobData> {
     Job(Job<JobData>),
     None,
     RateLimited(u64),
+}
+
+fn redis_type_err(msg: impl ToString) -> redis::RedisError {
+    redis::RedisError::from((redis::ErrorKind::TypeError, "Job parse error", msg.to_string()))
+}
+
+fn parse_redis_str(data: &[u8]) -> redis::RedisResult<String> {
+    String::from_utf8(data.to_vec()).map_err(redis_type_err)
+}
+
+fn parse_redis_field<T: std::str::FromStr>(data: &[u8], field: &str) -> redis::RedisResult<T>
+where
+    T::Err: std::fmt::Display,
+{
+    let s = parse_redis_str(data)?;
+    s.parse::<T>().map_err(|e| redis_type_err(format!("invalid {field}: {e}")))
 }
 
 impl<JobData: DeserializeOwned> FromRedisValue for MoveToActiveReturn<JobData> {
@@ -109,64 +120,51 @@ impl<JobData: DeserializeOwned> FromRedisValue for MoveToActiveReturn<JobData> {
                 }
                 [Value::Bulk(raw_job), Value::Data(job_id), Value::Int(_), Value::Int(_)] => {
                     let mut job_builder: JobBuilder<JobData> = JobBuilder::new();
-                    let slices = raw_job.chunks(2).collect::<Vec<_>>();
 
-                    job_builder = job_builder.id(String::from_utf8(job_id.to_vec()).unwrap());
+                    job_builder = job_builder.id(parse_redis_str(job_id)?);
 
-                    for slice in slices {
+                    for slice in raw_job.chunks(2) {
                         if let [Value::Data(key), Value::Data(value)] = slice {
-                            let key = String::from_utf8(key.to_vec()).unwrap();
+                            let key = parse_redis_str(key)?;
 
                             job_builder = match key.as_str() {
-                                "name" => {
-                                    job_builder.name(String::from_utf8(value.to_vec()).unwrap())
+                                "name" => job_builder.name(parse_redis_str(value)?),
+                                "data" => job_builder.data(
+                                    serde_json::from_slice(value)
+                                        .map_err(|e| redis_type_err(format!("invalid data: {e}")))?,
+                                ),
+                                "opts" => job_builder.opts(parse_redis_str(value)?),
+                                "timestamp" => {
+                                    job_builder.timestamp(parse_redis_field(value, "timestamp")?)
                                 }
-                                "data" => job_builder.data(serde_json::from_slice(value).unwrap()),
-                                "opts" => {
-                                    job_builder.opts(String::from_utf8(value.to_vec()).unwrap())
+                                "delay" => {
+                                    job_builder.delay(parse_redis_field(value, "delay")?)
                                 }
-                                "timestamp" => job_builder.timestamp(
-                                    String::from_utf8(value.to_vec())
-                                        .unwrap()
-                                        .parse::<u128>()
-                                        .unwrap(),
-                                ),
-                                "delay" => job_builder.delay(
-                                    String::from_utf8(value.to_vec())
-                                        .unwrap()
-                                        .parse::<u128>()
-                                        .unwrap(),
-                                ),
-                                "priority" => job_builder.priority(
-                                    String::from_utf8(value.to_vec())
-                                        .unwrap()
-                                        .parse::<u32>()
-                                        .unwrap(),
-                                ),
-                                "processedOn" => job_builder.processed_on(
-                                    String::from_utf8(value.to_vec())
-                                        .unwrap()
-                                        .parse::<u128>()
-                                        .unwrap(),
-                                ),
-                                "ats" => job_builder.attempts_started(
-                                    String::from_utf8(value.to_vec())
-                                        .unwrap()
-                                        .parse::<u32>()
-                                        .unwrap(),
-                                ),
-                                "atm" => job_builder.attempts_made(
-                                    String::from_utf8(value.to_vec())
-                                        .unwrap()
-                                        .parse::<u32>()
-                                        .unwrap(),
-                                ),
+                                "priority" => {
+                                    job_builder.priority(parse_redis_field(value, "priority")?)
+                                }
+                                "processedOn" => {
+                                    job_builder.processed_on(parse_redis_field(value, "processedOn")?)
+                                }
+                                "ats" => {
+                                    job_builder.attempts_started(parse_redis_field(value, "ats")?)
+                                }
+                                "atm" => {
+                                    job_builder.attempts_made(parse_redis_field(value, "atm")?)
+                                }
                                 _ => job_builder,
                             };
                         }
                     }
 
-                    Ok(MoveToActiveReturn::Job(job_builder.build()))
+                    match job_builder.build() {
+                        Ok(job) => Ok(MoveToActiveReturn::Job(job)),
+                        Err(e) => Err(redis::RedisError::from((
+                            redis::ErrorKind::TypeError,
+                            "Failed to build job from Redis data",
+                            e,
+                        ))),
+                    }
                 }
                 _ => Err(redis::RedisError::from((
                     redis::ErrorKind::TypeError,

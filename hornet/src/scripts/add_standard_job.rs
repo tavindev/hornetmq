@@ -32,7 +32,9 @@ impl ToRedisArgs for AddStandardJobOpts {
     where
         W: ?Sized + redis::RedisWrite,
     {
-        rmp_serde::to_vec_named(self).unwrap().write_redis_args(out)
+        rmp_serde::to_vec_named(self)
+            .expect("AddStandardJobOpts serialization should never fail")
+            .write_redis_args(out)
     }
 }
 
@@ -79,7 +81,7 @@ impl AddStandardJob {
     pub fn run(
         &self,
         prefix: &str,
-        client: &mut redis::Client,
+        con: &mut impl redis::ConnectionLike,
         job_name: &str,
         data: &str,
         opts: AddStandardJobOpts,
@@ -93,7 +95,7 @@ impl AddStandardJob {
             .as_millis() as u64;
 
         // KEYS[1..7]: wait, paused, meta, id, completed, events, marker
-        let keys: Vec<String> = [
+        for key in [
             QueueKeys::Wait,
             QueueKeys::Paused,
             QueueKeys::Meta,
@@ -101,13 +103,8 @@ impl AddStandardJob {
             QueueKeys::Completed,
             QueueKeys::Events,
             QueueKeys::Marker,
-        ]
-        .iter()
-        .map(|s| s.with_prefix(prefix))
-        .collect();
-
-        for key in keys {
-            script = script.key(key)
+        ] {
+            script = script.key(key.with_prefix(prefix));
         }
 
         let argv1 = build_argv1(prefix, job_name, timestamp, custom_id);
@@ -119,7 +116,7 @@ impl AddStandardJob {
         // ARGV[3] = msgpacked options
         script = script.arg(opts);
 
-        let job_id: String = script.invoke(client)?;
+        let job_id: String = script.invoke(con)?;
 
         Ok(job_id)
     }

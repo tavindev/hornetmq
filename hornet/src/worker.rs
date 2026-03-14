@@ -54,26 +54,33 @@ enum TaskEvent {
     FreedEmpty,
 }
 
-type ProcessFn<Data, Return> = fn(&Job<Data>) -> Result<Return>;
+type ProcessFn<Data, Return> = Arc<dyn Fn(&Job<Data>) -> Result<Return> + Send + Sync>;
 
-fn emit_event(client: &mut Client, prefix: &str, event: JobEvent, job_id: &str) {
+fn emit_event(conn: &mut impl redis::ConnectionLike, prefix: &str, event: JobEvent, job_id: &str) {
     let events_key = format!("{prefix}events");
-    let _: redis::RedisResult<String> = redis::cmd("XADD")
+    let result: redis::RedisResult<String> = redis::cmd("XADD")
         .arg(&events_key)
         .arg("*")
         .arg("event")
         .arg(event.as_str())
         .arg("jobId")
         .arg(job_id)
-        .query(client);
+        .query(conn);
+    if let Err(e) = result {
+        eprintln!("Failed to emit {event:?} event for job {job_id}: {e}");
+    }
 }
 
-fn move_to_delayed(client: &mut Client, prefix: &str, job_id: &str, token: &str, delay_ms: u64) {
-    let now = std::time::SystemTime::now()
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-    let delayed_score = ((now + delay_ms) as u128) * 0x1000;
+        .expect("system clock before unix epoch")
+        .as_millis() as u64
+}
+
+fn move_to_delayed(conn: &mut impl redis::ConnectionLike, prefix: &str, job_id: &str, token: &str, delay_ms: u64) -> redis::RedisResult<()> {
+    let now = now_ms();
+    let delayed_score = (now + delay_ms).saturating_mul(0x1000);
     let marker_score = now + delay_ms;
 
     let active_key = format!("{prefix}active");
@@ -82,29 +89,27 @@ fn move_to_delayed(client: &mut Client, prefix: &str, job_id: &str, token: &str,
     let lock_key = format!("{job_key}:lock");
     let marker_key = format!("{prefix}marker");
 
-    // Remove lock
-    let lock_val: redis::RedisResult<String> = client.get(&lock_key);
+    // Remove lock if owned by this token
+    let lock_val: redis::RedisResult<String> = redis::cmd("GET").arg(&lock_key).query(conn);
     if let Ok(val) = lock_val {
         if val == token {
-            let _: redis::RedisResult<()> = client.del(&lock_key);
+            redis::cmd("DEL").arg(&lock_key).query::<()>(conn)?;
         }
     }
 
     // Remove from active list
-    let _: redis::RedisResult<u32> = client.lrem(&active_key, 0, job_id);
+    redis::cmd("LREM").arg(&active_key).arg(0).arg(job_id).query::<u32>(conn)?;
 
     // Increment attempts made
-    let _: redis::RedisResult<u32> = redis::cmd("HINCRBY")
-        .arg(&job_key)
-        .arg("atm")
-        .arg(1)
-        .query(client);
+    redis::cmd("HINCRBY").arg(&job_key).arg("atm").arg(1).query::<u32>(conn)?;
 
     // Add to delayed sorted set with score = timestamp * 0x1000
-    let _: redis::RedisResult<u32> = client.zadd(&delayed_key, job_id, delayed_score as f64);
+    redis::cmd("ZADD").arg(&delayed_key).arg(delayed_score).arg(job_id).query::<u32>(conn)?;
 
     // Set marker so delayed job promoter picks it up
-    let _: redis::RedisResult<u32> = client.zadd(&marker_key, "0", marker_score as f64);
+    redis::cmd("ZADD").arg(&marker_key).arg(marker_score).arg("0").query::<u32>(conn)?;
+
+    Ok(())
 }
 
 pub struct Worker<Data, Return>
@@ -112,7 +117,7 @@ where
     Data: DeserializeOwned + 'static,
     Return: Serialize + 'static,
 {
-    queue_name: String,
+    prefix: String,
     concurrency: usize,
     active_tasks: usize,
     client: Client,
@@ -133,29 +138,62 @@ where
     ReturnType: Serialize + 'static,
 {
     pub fn new(
-        queue_name: String,
-        redis_url: String,
+        queue_name: impl Into<String>,
+        redis_url: &str,
         concurrency: usize,
-        process_fn: ProcessFn<JobData, ReturnType>,
-    ) -> Self {
-        let client = Client::open(redis_url).unwrap();
+        process_fn: fn(&Job<JobData>) -> Result<ReturnType>,
+    ) -> Result<Self> {
+        let client = Client::open(redis_url)?;
+        let queue_name = queue_name.into();
+        let prefix = format!("bull:{queue_name}:");
         let (sender, receiver) = tokio::sync::mpsc::channel(concurrency);
 
-        Worker {
-            queue_name,
+        Ok(Worker {
+            prefix,
             concurrency,
             active_tasks: 0,
             client,
             receiver,
             sender,
-            process_fn,
+            process_fn: Arc::new(process_fn),
             token: WorkerToken::new(),
             drained: false,
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             lock_duration: DEFAULT_LOCK_DURATION,
             default_backoff: None,
             limiter: None,
-        }
+        })
+    }
+
+    pub fn with_processor<F>(
+        queue_name: impl Into<String>,
+        redis_url: &str,
+        concurrency: usize,
+        processor: F,
+    ) -> Result<Self>
+    where
+        F: Fn(&Job<JobData>) -> Result<ReturnType> + Send + Sync + 'static,
+    {
+        let client = Client::open(redis_url)?;
+        let queue_name = queue_name.into();
+        let prefix = format!("bull:{queue_name}:");
+        let (sender, receiver) = tokio::sync::mpsc::channel(concurrency);
+
+        Ok(Worker {
+            prefix,
+            concurrency,
+            active_tasks: 0,
+            client,
+            receiver,
+            sender,
+            process_fn: Arc::new(processor),
+            token: WorkerToken::new(),
+            drained: false,
+            shutdown_flag: Arc::new(AtomicBool::new(false)),
+            lock_duration: DEFAULT_LOCK_DURATION,
+            default_backoff: None,
+            limiter: None,
+        })
     }
 
     pub fn with_limiter(mut self, max: u32, duration: u64) -> Self {
@@ -184,9 +222,9 @@ where
     fn start_processor_task(&mut self) {
         let prefix = self.get_prefixed_key("");
         let token = self.token.next();
-        let mut client = self.client.clone();
+        let client = self.client.clone();
         let sender = self.sender.clone();
-        let process_fn = self.process_fn;
+        let process_fn = self.process_fn.clone();
         let lock_duration = self.lock_duration;
         let default_backoff = self.default_backoff.clone();
         let limiter = self.limiter.clone();
@@ -202,12 +240,19 @@ where
             }
             let mut _guard = FreedOnDrop(Some(sender.clone()));
 
+            let mut conn = match client.get_connection() {
+                Ok(c) => c,
+                Err(_) => {
+                    return;
+                }
+            };
+
             let mut processed_any = false;
 
             // Move to active script
             while let Ok(job) = MOVE_TO_ACTIVE.run::<JobData>(
                 &prefix,
-                &mut client,
+                &mut conn,
                 MoveToActiveArgs {
                     token: token.clone(),
                     lock_duration: lock_duration as u32,
@@ -219,7 +264,7 @@ where
                         processed_any = true;
 
                         // Emit active event
-                        emit_event(&mut client, &prefix, JobEvent::Active, &job.id);
+                        emit_event(&mut conn, &prefix, JobEvent::Active, &job.id);
 
                         match process_fn(&job) {
                             Ok(result) => {
@@ -238,7 +283,7 @@ where
 
                                 match MOVE_TO_FINISHED.run(
                                     &prefix,
-                                    &mut client,
+                                    &mut conn,
                                     &job.id,
                                     stringified_result.as_str(),
                                     MoveToFinishedTarget::Completed,
@@ -254,14 +299,14 @@ where
                                 ) {
                                     Ok(MoveToFinishedReturn::Ok) => {
                                         emit_event(
-                                            &mut client,
+                                            &mut conn,
                                             &prefix,
                                             JobEvent::Completed,
                                             &job.id,
                                         );
                                     }
                                     res => {
-                                        println!("Error moving job to completed: {res:?}");
+                                        eprintln!("Error moving job to completed: {res:?}");
                                     }
                                 }
                             }
@@ -269,37 +314,43 @@ where
                                 let attempts_made = job.attempts_made.unwrap_or(0) + 1;
 
                                 if should_retry(attempts_made, job.opts.attempts) {
-                                    let effective_backoff = job.opts.backoff.as_ref().or(default_backoff.as_ref()).cloned();
-                                    let delay = next_retry_delay(&effective_backoff, attempts_made);
+                                    let effective_backoff = job.opts.backoff.as_ref().or(default_backoff.as_ref());
+                                    let delay = next_retry_delay(effective_backoff, attempts_made);
 
                                     if delay > 0 {
                                         // Move to delayed set with backoff delay
-                                        move_to_delayed(
-                                            &mut client,
+                                        match move_to_delayed(
+                                            &mut conn,
                                             &prefix,
                                             &job.id,
                                             &token,
                                             delay,
-                                        );
-                                        emit_event(
-                                            &mut client,
-                                            &prefix,
-                                            JobEvent::Retrying,
-                                            &job.id,
-                                        );
+                                        ) {
+                                            Ok(()) => {
+                                                emit_event(
+                                                    &mut conn,
+                                                    &prefix,
+                                                    JobEvent::Retrying,
+                                                    &job.id,
+                                                );
+                                            }
+                                            Err(e) => {
+                                                eprintln!("Error moving job to delayed: {e}");
+                                            }
+                                        }
                                     } else {
                                         // Immediate retry
-                                        match RETRY_JOB.run(&prefix, &mut client, &job.id, &token, job.opts.lifo) {
+                                        match RETRY_JOB.run(&prefix, &mut conn, &job.id, &token, job.opts.lifo) {
                                             Ok(RetryJobReturn::Ok) => {
                                                 emit_event(
-                                                    &mut client,
+                                                    &mut conn,
                                                     &prefix,
                                                     JobEvent::Retrying,
                                                     &job.id,
                                                 );
                                             }
                                             res => {
-                                                println!("Error retrying job: {res:?}");
+                                                eprintln!("Error retrying job: {res:?}");
                                             }
                                         }
                                     }
@@ -314,7 +365,7 @@ where
 
                                     match MOVE_TO_FINISHED.run(
                                         &prefix,
-                                        &mut client,
+                                        &mut conn,
                                         &job.id,
                                         err.to_string().as_str(),
                                         MoveToFinishedTarget::Failed,
@@ -330,14 +381,14 @@ where
                                     ) {
                                         Ok(MoveToFinishedReturn::Ok) => {
                                             emit_event(
-                                                &mut client,
+                                                &mut conn,
                                                 &prefix,
                                                 JobEvent::Failed,
                                                 &job.id,
                                             );
                                         }
                                         res => {
-                                            println!("Error moving job to failed: {res:?}");
+                                            eprintln!("Error moving job to failed: {res:?}");
                                         }
                                     }
                                 }
@@ -398,7 +449,7 @@ where
 
                     if !exists {
                         // Job is stalled - lock expired but still in active list
-                        emit_event(&mut client.clone(), &prefix, JobEvent::Stalled, &job_id);
+                        emit_event(&mut conn, &prefix, JobEvent::Stalled, &job_id);
 
                         // Check attempts to decide retry vs fail
                         let job_key = format!("{prefix}{job_id}");
@@ -421,6 +472,11 @@ where
                                 .arg("atm")
                                 .arg(1)
                                 .query(&mut conn);
+                            let _: redis::RedisResult<u32> = redis::cmd("HINCRBY")
+                                .arg(&job_key)
+                                .arg("ats")
+                                .arg(1)
+                                .query(&mut conn);
                             // Set marker to wake worker
                             let marker_key = format!("{prefix}marker");
                             let _: redis::RedisResult<u32> = conn.zadd(&marker_key, "1", 0.0);
@@ -428,12 +484,9 @@ where
                             // Move to failed
                             let failed_key = format!("{prefix}failed");
                             let _: redis::RedisResult<u32> = conn.lrem(&active_key, 0, &job_id);
-                            let now = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis();
+                            let now = now_ms();
                             let _: redis::RedisResult<u32> =
-                                conn.zadd(&failed_key, &job_id, now as f64);
+                                conn.zadd(&failed_key, &job_id, now);
                             let _: redis::RedisResult<()> = redis::cmd("HMSET")
                                 .arg(&job_key)
                                 .arg("failedReason")
@@ -442,7 +495,7 @@ where
                                 .arg(now.to_string())
                                 .query(&mut conn);
 
-                            emit_event(&mut client.clone(), &prefix, JobEvent::Failed, &job_id);
+                            emit_event(&mut conn, &prefix, JobEvent::Failed, &job_id);
                         }
                     }
                 }
@@ -542,6 +595,6 @@ where
     }
 
     fn get_prefixed_key(&self, key: &str) -> String {
-        format!("bull:{}:{}", self.queue_name, key)
+        format!("{}{key}", self.prefix)
     }
 }

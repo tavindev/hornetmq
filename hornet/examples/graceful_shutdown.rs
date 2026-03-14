@@ -30,11 +30,11 @@ fn slow_processor(job: &Job<Payload>) -> Result<String> {
 
 #[tokio::main]
 async fn main() {
-    let redis_url = "redis://localhost:6379".to_string();
-    let queue_name = "shutdown-demo".to_string();
+    let redis_url = "redis://localhost:6379";
+    let queue_name = "shutdown-demo";
 
     // Enqueue some jobs
-    let mut queue = Queue::new(queue_name.clone(), redis_url.clone());
+    let mut queue = Queue::new(queue_name, redis_url).unwrap();
     for i in 1..=10 {
         queue
             .add(
@@ -49,7 +49,7 @@ async fn main() {
     println!("Enqueued 10 jobs.\n");
 
     // Worker with concurrency 3 — handles SIGINT/SIGTERM automatically
-    let mut worker = Worker::new(queue_name, redis_url, 3, slow_processor);
+    let mut worker = Worker::new(queue_name, redis_url, 3, slow_processor).unwrap();
 
     println!("Worker running (concurrency=3). Press Ctrl+C to shut down gracefully.\n");
     worker.run().await.unwrap();

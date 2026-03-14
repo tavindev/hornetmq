@@ -29,7 +29,7 @@ fn cleanup(queue_name: &str) {
 
 fn bench_enqueue_single(c: &mut Criterion) {
     let queue_name = unique_queue();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     c.bench_function("queue/enqueue_single", |b| {
         b.iter(|| {
@@ -53,7 +53,7 @@ fn bench_enqueue_with_options(c: &mut Criterion) {
     use hornetmq::core::backoff::BackoffStrategy;
 
     let queue_name = unique_queue();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     c.bench_function("queue/enqueue_with_options", |b| {
         b.iter(|| {
@@ -72,6 +72,7 @@ fn bench_enqueue_with_options(c: &mut Criterion) {
                             base: 1000,
                             max: 30_000,
                         }),
+                        ..Default::default()
                     },
                 )
                 .unwrap();
@@ -86,7 +87,7 @@ fn bench_enqueue_batch(c: &mut Criterion) {
 
     for batch_size in [10, 50, 100] {
         let queue_name = unique_queue();
-        let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+        let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
         group.bench_with_input(
             BenchmarkId::from_parameter(batch_size),
@@ -120,7 +121,7 @@ fn bench_enqueue_payload_sizes(c: &mut Criterion) {
 
     for size in [100, 1_000, 10_000] {
         let queue_name = unique_queue();
-        let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+        let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
         let payload = BenchPayload {
             message: "x".repeat(size),
             count: 0,

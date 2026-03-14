@@ -15,5 +15,5 @@ fn process_email(job: &Job<EmailData>) -> Result<String> {
 
 fn main() {
     // Verify the struct was generated with correct name
-    let _w = ProcessEmailWorker::new("redis://localhost:6379");
+    let _w = ProcessEmailWorker::new("redis://localhost:6379").unwrap();
 }

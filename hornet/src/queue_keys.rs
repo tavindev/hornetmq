@@ -17,7 +17,7 @@ pub enum QueueKeys {
 }
 
 impl QueueKeys {
-    pub fn as_str(&self) -> String {
+    pub fn as_str(&self) -> &str {
         match self {
             QueueKeys::Wait => "wait",
             QueueKeys::Active => "active",
@@ -35,11 +35,10 @@ impl QueueKeys {
             QueueKeys::Failed => "failed",
             QueueKeys::Custom(s) => s,
         }
-        .into()
     }
 
     pub fn with_prefix(&self, prefix: &str) -> String {
-        format!("{}{}", prefix, self.as_str())
+        format!("{prefix}{}", self.as_str())
     }
 }
 

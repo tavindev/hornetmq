@@ -17,11 +17,12 @@ fn test_processor(job: &Job<ProcessorData>) -> Result<String> {
 #[tokio::main]
 async fn main() {
     let mut worker = Worker::new(
-        "new-queue".to_string(),
-        "redis://localhost:6379".to_string(),
+        "new-queue",
+        "redis://localhost:6379",
         1,
         test_processor,
-    );
+    )
+    .unwrap();
 
     worker.run().await.unwrap();
 }

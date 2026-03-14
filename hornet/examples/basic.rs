@@ -33,11 +33,11 @@ fn send_email(job: &Job<Email>) -> Result<String> {
 
 #[tokio::main]
 async fn main() {
-    let redis_url = "redis://localhost:6379".to_string();
-    let queue_name = "emails".to_string();
+    let redis_url = "redis://localhost:6379";
+    let queue_name = "emails";
 
     // --- Producer ---
-    let mut queue = Queue::new(queue_name.clone(), redis_url.clone());
+    let mut queue = Queue::new(queue_name, redis_url).unwrap();
 
     let recipients = vec![
         ("alice@example.com", "Welcome!"),
@@ -62,7 +62,7 @@ async fn main() {
     }
 
     // --- Consumer ---
-    let mut worker = Worker::new(queue_name, redis_url, 2, send_email);
+    let mut worker = Worker::new(queue_name, redis_url, 2, send_email).unwrap();
     let shutdown = worker.shutdown_flag();
 
     // Auto-shutdown after 3 seconds

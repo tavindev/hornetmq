@@ -50,7 +50,7 @@ fn cleanup_queue(queue_name: &str) {
 #[test]
 fn test_add_job() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let job_id = queue
         .add(
@@ -88,7 +88,7 @@ fn test_add_job() {
 #[test]
 fn test_add_job_with_delay() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let job_id = queue
         .add(
@@ -119,7 +119,7 @@ fn test_add_job_with_delay() {
 #[test]
 fn test_add_job_with_priority() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let job_id = queue
         .add(
@@ -152,7 +152,7 @@ fn test_add_job_with_priority() {
 #[test]
 fn test_add_job_default_options() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let job_id = queue
         .add(

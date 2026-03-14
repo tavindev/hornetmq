@@ -37,7 +37,7 @@ fn cleanup(queue_name: &str) {
 }
 
 fn enqueue_n_jobs(queue_name: &str, n: u64) {
-    let mut queue = Queue::new(queue_name.into(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name, "redis://localhost:6379").unwrap();
     for i in 0..n {
         queue
             .add("bench", BenchData { value: i }, AddJobOptions::default())
@@ -67,10 +67,11 @@ fn bench_worker_throughput(c: &mut Criterion) {
                     rt.block_on(async {
                         let mut worker = Worker::new(
                             queue_name.clone(),
-                            "redis://localhost:6379".into(),
+                            "redis://localhost:6379",
                             concurrency,
                             noop_processor,
-                        );
+                        )
+                        .unwrap();
 
                         let shutdown = worker.shutdown_flag();
                         let qn = queue_name.clone();
@@ -114,10 +115,11 @@ fn bench_worker_startup_shutdown(c: &mut Criterion) {
             rt.block_on(async {
                 let mut worker = Worker::new(
                     queue_name.clone(),
-                    "redis://localhost:6379".into(),
+                    "redis://localhost:6379",
                     1,
                     noop_processor,
-                );
+                )
+                .unwrap();
 
                 let shutdown = worker.shutdown_flag();
                 tokio::spawn(async move {

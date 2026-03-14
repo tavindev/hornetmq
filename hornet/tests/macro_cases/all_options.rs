@@ -20,5 +20,5 @@ fn handle_task(job: &Job<Payload>) -> Result<u32> {
 }
 
 fn main() {
-    let _w = HandleTaskWorker::new("redis://localhost:6379");
+    let _w = HandleTaskWorker::new("redis://localhost:6379").unwrap();
 }

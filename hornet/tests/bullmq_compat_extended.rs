@@ -61,7 +61,7 @@ fn bullmq_consume(queue_name: &str, timeout_ms: u64) -> Option<serde_json::Value
 #[test]
 fn hornet_custom_job_id_readable_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     queue.add("custom-id-job", serde_json::json!({"value": "custom"}), AddJobOptions {
         job_id: Some("my-custom-123".into()),
@@ -83,7 +83,7 @@ fn hornet_custom_job_id_readable_by_bullmq() {
 #[test]
 fn hornet_delayed_job_readable_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let id = queue.add("delayed-job", serde_json::json!({"value": "later"}), AddJobOptions {
         delay: Some(60_000),
@@ -104,7 +104,7 @@ fn hornet_delayed_job_readable_by_bullmq() {
 #[test]
 fn hornet_lifo_jobs_consumed_in_correct_order_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     queue.add("first", serde_json::json!({"value": "first"}), AddJobOptions {
         lifo: Some(true),
@@ -132,7 +132,7 @@ fn hornet_lifo_jobs_consumed_in_correct_order_by_bullmq() {
 #[test]
 fn hornet_exponential_backoff_with_max_readable_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let id = queue.add("exp-job", serde_json::json!({"value": "exp"}), AddJobOptions {
         attempts: Some(5),
@@ -161,7 +161,7 @@ fn hornet_exponential_backoff_with_max_readable_by_bullmq() {
 #[test]
 fn hornet_priority_job_consumable_by_bullmq() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     queue.add("high-prio", serde_json::json!({"value": "high"}), AddJobOptions {
         priority: Some(1),

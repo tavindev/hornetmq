@@ -334,18 +334,18 @@ fn generate_worker(
         }
 
         impl #struct_name {
-            pub fn new(redis_url: &str) -> Self {
+            pub fn new(redis_url: &str) -> anyhow::Result<Self> {
                 let worker = hornetmq::Worker::new(
-                    #queue_name.to_string(),
-                    redis_url.to_string(),
+                    #queue_name,
+                    redis_url,
                     #concurrency,
                     #fn_name,
-                )
+                )?
                 .with_lock_duration(#lock_duration)
                 #backoff_chain
                 #limiter_chain;
 
-                Self { inner: worker }
+                Ok(Self { inner: worker })
             }
 
             pub async fn run(&mut self) -> anyhow::Result<()> {

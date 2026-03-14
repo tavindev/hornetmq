@@ -49,14 +49,15 @@ pub struct JobCounts {
 }
 
 pub struct Queue {
-    name: String,
+    prefix: String,
     client: redis::Client,
 }
 
 impl Queue {
-    pub fn new(name: String, redis_url: String) -> Self {
-        let client = redis::Client::open(redis_url).unwrap();
-        Queue { name, client }
+    pub fn new(name: impl Into<String>, redis_url: &str) -> Result<Self> {
+        let client = redis::Client::open(redis_url)?;
+        let name = name.into();
+        Ok(Queue { prefix: format!("bull:{name}:"), client })
     }
 
     /// Add a job to the queue. Returns the job ID.
@@ -66,7 +67,7 @@ impl Queue {
         data: D,
         opts: AddJobOptions,
     ) -> Result<String> {
-        let prefix = format!("bull:{}:", self.name);
+        let prefix = &self.prefix;
         let json_data = serde_json::to_string(&data)?;
 
         let script_opts = AddStandardJobOpts {
@@ -78,24 +79,22 @@ impl Queue {
         };
 
         let custom_id = opts.job_id.as_deref().unwrap_or("");
-        ADD_STANDARD_JOB.run(&prefix, &mut self.client, job_name, &json_data, script_opts, custom_id)
+        let mut conn = self.client.get_connection()?;
+        ADD_STANDARD_JOB.run(prefix, &mut conn, job_name, &json_data, script_opts, custom_id)
     }
 
     /// Get a single job by ID.
     pub fn get_job(&mut self, id: &str) -> Result<Option<RawJob>> {
         let mut conn = self.client.get_connection()?;
-        let key = format!("bull:{}:{}", self.name, id);
+        let key = format!("{}{id}", self.prefix);
         let exists: bool = conn.exists(&key)?;
         if !exists {
             return Ok(None);
         }
-        let fields: HashMap<String, String> =
+        let mut fields: HashMap<String, String> =
             redis::cmd("HGETALL").arg(&key).query(&mut conn)?;
         Ok(Some(RawJob {
             id: id.to_string(),
-            name: fields.get("name").cloned().unwrap_or_default(),
-            data: fields.get("data").cloned().unwrap_or_default(),
-            opts: fields.get("opts").cloned().unwrap_or_default(),
             timestamp: fields
                 .get("timestamp")
                 .and_then(|s| s.parse().ok())
@@ -108,6 +107,9 @@ impl Queue {
                 .get("priority")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0),
+            name: fields.remove("name").unwrap_or_default(),
+            data: fields.remove("data").unwrap_or_default(),
+            opts: fields.remove("opts").unwrap_or_default(),
         }))
     }
 
@@ -115,8 +117,8 @@ impl Queue {
     /// "failed", "delayed", "prioritized", or "paused".
     pub fn get_jobs(&mut self, state: &str, start: isize, end: isize) -> Result<Vec<RawJob>> {
         let mut conn = self.client.get_connection()?;
-        let prefix = format!("bull:{}:", self.name);
-        let state_key = format!("{}{}", prefix, state);
+        let prefix = &self.prefix;
+        let state_key = format!("{prefix}{state}");
 
         let job_ids: Vec<String> = match state {
             "wait" | "active" | "paused" => redis::cmd("LRANGE")
@@ -129,7 +131,7 @@ impl Queue {
                 .arg(start)
                 .arg(end)
                 .query(&mut conn)?,
-            _ => return Err(anyhow::anyhow!("unknown state: {}", state)),
+            _ => return Err(anyhow::anyhow!("unknown state: {state}")),
         };
 
         let mut jobs = Vec::new();
@@ -144,28 +146,28 @@ impl Queue {
     /// Get counts of jobs in each state.
     pub fn get_job_counts(&mut self) -> Result<JobCounts> {
         let mut conn = self.client.get_connection()?;
-        let prefix = format!("bull:{}:", self.name);
+        let prefix = &self.prefix;
 
         let waiting: u64 = redis::cmd("LLEN")
-            .arg(format!("{}wait", prefix))
+            .arg(format!("{prefix}wait"))
             .query(&mut conn)?;
         let active: u64 = redis::cmd("LLEN")
-            .arg(format!("{}active", prefix))
+            .arg(format!("{prefix}active"))
             .query(&mut conn)?;
         let completed: u64 = redis::cmd("ZCARD")
-            .arg(format!("{}completed", prefix))
+            .arg(format!("{prefix}completed"))
             .query(&mut conn)?;
         let failed: u64 = redis::cmd("ZCARD")
-            .arg(format!("{}failed", prefix))
+            .arg(format!("{prefix}failed"))
             .query(&mut conn)?;
         let delayed: u64 = redis::cmd("ZCARD")
-            .arg(format!("{}delayed", prefix))
+            .arg(format!("{prefix}delayed"))
             .query(&mut conn)?;
         let prioritized: u64 = redis::cmd("ZCARD")
-            .arg(format!("{}prioritized", prefix))
+            .arg(format!("{prefix}prioritized"))
             .query(&mut conn)?;
         let paused: u64 = redis::cmd("LLEN")
-            .arg(format!("{}paused", prefix))
+            .arg(format!("{prefix}paused"))
             .query(&mut conn)?;
 
         Ok(JobCounts {
@@ -182,10 +184,10 @@ impl Queue {
     /// Pause the queue — sets meta.paused and moves waiting jobs to the paused list.
     pub fn pause(&mut self) -> Result<()> {
         let mut conn = self.client.get_connection()?;
-        let prefix = format!("bull:{}:", self.name);
-        let meta_key = format!("{}meta", prefix);
-        let wait_key = format!("{}wait", prefix);
-        let paused_key = format!("{}paused", prefix);
+        let prefix = &self.prefix;
+        let meta_key = format!("{prefix}meta");
+        let wait_key = format!("{prefix}wait");
+        let paused_key = format!("{prefix}paused");
 
         redis::cmd("HSET")
             .arg(&meta_key)
@@ -223,11 +225,11 @@ impl Queue {
     /// Resume the queue — removes meta.paused and moves paused jobs back to wait.
     pub fn resume(&mut self) -> Result<()> {
         let mut conn = self.client.get_connection()?;
-        let prefix = format!("bull:{}:", self.name);
-        let meta_key = format!("{}meta", prefix);
-        let wait_key = format!("{}wait", prefix);
-        let paused_key = format!("{}paused", prefix);
-        let marker_key = format!("{}marker", prefix);
+        let prefix = &self.prefix;
+        let meta_key = format!("{prefix}meta");
+        let wait_key = format!("{prefix}wait");
+        let paused_key = format!("{prefix}paused");
+        let marker_key = format!("{prefix}marker");
 
         redis::cmd("HDEL")
             .arg(&meta_key)
@@ -270,7 +272,7 @@ impl Queue {
     /// Check whether the queue is paused.
     pub fn is_paused(&mut self) -> Result<bool> {
         let mut conn = self.client.get_connection()?;
-        let meta_key = format!("bull:{}:meta", self.name);
+        let meta_key = format!("{}meta", self.prefix);
         let exists: bool = redis::cmd("HEXISTS")
             .arg(&meta_key)
             .arg("paused")
@@ -281,25 +283,25 @@ impl Queue {
     /// Drain the queue — remove all waiting, delayed, prioritized, and paused jobs.
     pub fn drain(&mut self) -> Result<()> {
         let mut conn = self.client.get_connection()?;
-        let prefix = format!("bull:{}:", self.name);
+        let prefix = &self.prefix;
 
         let wait_ids: Vec<String> = redis::cmd("LRANGE")
-            .arg(format!("{}wait", prefix))
+            .arg(format!("{prefix}wait"))
             .arg(0isize)
             .arg(-1isize)
             .query(&mut conn)?;
         let paused_ids: Vec<String> = redis::cmd("LRANGE")
-            .arg(format!("{}paused", prefix))
+            .arg(format!("{prefix}paused"))
             .arg(0isize)
             .arg(-1isize)
             .query(&mut conn)?;
         let delayed_ids: Vec<String> = redis::cmd("ZRANGE")
-            .arg(format!("{}delayed", prefix))
+            .arg(format!("{prefix}delayed"))
             .arg(0isize)
             .arg(-1isize)
             .query(&mut conn)?;
         let prioritized_ids: Vec<String> = redis::cmd("ZRANGE")
-            .arg(format!("{}prioritized", prefix))
+            .arg(format!("{prefix}prioritized"))
             .arg(0isize)
             .arg(-1isize)
             .query(&mut conn)?;
@@ -310,15 +312,15 @@ impl Queue {
             .chain(delayed_ids.iter())
             .chain(prioritized_ids.iter())
         {
-            let job_key = format!("{}{}", prefix, id);
+            let job_key = format!("{prefix}{id}");
             redis::cmd("DEL").arg(&job_key).query::<()>(&mut conn)?;
         }
 
         redis::cmd("DEL")
-            .arg(format!("{}wait", prefix))
-            .arg(format!("{}paused", prefix))
-            .arg(format!("{}delayed", prefix))
-            .arg(format!("{}prioritized", prefix))
+            .arg(format!("{prefix}wait"))
+            .arg(format!("{prefix}paused"))
+            .arg(format!("{prefix}delayed"))
+            .arg(format!("{prefix}prioritized"))
             .query::<()>(&mut conn)?;
 
         Ok(())
@@ -327,47 +329,47 @@ impl Queue {
     /// Remove a specific job by ID from all state lists and delete its hash/associated keys.
     pub fn remove_job(&mut self, id: &str) -> Result<()> {
         let mut conn = self.client.get_connection()?;
-        let prefix = format!("bull:{}:", self.name);
-        let job_key = format!("{}{}", prefix, id);
+        let prefix = &self.prefix;
+        let job_key = format!("{prefix}{id}");
 
         redis::cmd("LREM")
-            .arg(format!("{}wait", prefix))
+            .arg(format!("{prefix}wait"))
             .arg(0)
             .arg(id)
             .query::<u32>(&mut conn)?;
         redis::cmd("LREM")
-            .arg(format!("{}active", prefix))
+            .arg(format!("{prefix}active"))
             .arg(0)
             .arg(id)
             .query::<u32>(&mut conn)?;
         redis::cmd("LREM")
-            .arg(format!("{}paused", prefix))
+            .arg(format!("{prefix}paused"))
             .arg(0)
             .arg(id)
             .query::<u32>(&mut conn)?;
         redis::cmd("ZREM")
-            .arg(format!("{}completed", prefix))
+            .arg(format!("{prefix}completed"))
             .arg(id)
             .query::<u32>(&mut conn)?;
         redis::cmd("ZREM")
-            .arg(format!("{}failed", prefix))
+            .arg(format!("{prefix}failed"))
             .arg(id)
             .query::<u32>(&mut conn)?;
         redis::cmd("ZREM")
-            .arg(format!("{}delayed", prefix))
+            .arg(format!("{prefix}delayed"))
             .arg(id)
             .query::<u32>(&mut conn)?;
         redis::cmd("ZREM")
-            .arg(format!("{}prioritized", prefix))
+            .arg(format!("{prefix}prioritized"))
             .arg(id)
             .query::<u32>(&mut conn)?;
 
         redis::cmd("DEL")
             .arg(&job_key)
-            .arg(format!("{}:lock", job_key))
-            .arg(format!("{}:logs", job_key))
-            .arg(format!("{}:processed", job_key))
-            .arg(format!("{}:dependencies", job_key))
+            .arg(format!("{job_key}:lock"))
+            .arg(format!("{job_key}:logs"))
+            .arg(format!("{job_key}:processed"))
+            .arg(format!("{job_key}:dependencies"))
             .query::<()>(&mut conn)?;
 
         Ok(())
@@ -418,7 +420,13 @@ mod tests {
     }
 
     fn make_queue(name: &str) -> Queue {
-        Queue::new(name.to_string(), "redis://localhost:6379".to_string())
+        Queue::new(name, "redis://localhost:6379").unwrap()
+    }
+
+    #[test]
+    fn test_new_with_bad_url_returns_err() {
+        let result = Queue::new("test", "not-a-valid-url");
+        assert!(result.is_err());
     }
 
     #[test]

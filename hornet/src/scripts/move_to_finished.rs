@@ -4,7 +4,6 @@ use crate::queue_keys::QueueKeys;
 use anyhow::Result;
 use redis::FromRedisValue;
 use serde::Serialize;
-use std::convert::Into;
 use std::time::SystemTime;
 
 generate_script_struct!(
@@ -75,6 +74,8 @@ impl FromRedisValue for MoveToFinishedReturn {
             redis::Value::Int(-3) => Ok(MoveToFinishedReturn::JobNotActiveInSet),
             redis::Value::Int(-4) => Ok(MoveToFinishedReturn::JobHasPendingDependencies),
             redis::Value::Int(-6) => Ok(MoveToFinishedReturn::LockIsNotOwnedByThisClient),
+            // fetch_next may return a job array — treat as success
+            redis::Value::Bulk(_) => Ok(MoveToFinishedReturn::Ok),
             _ => Err(redis::RedisError::from((
                 redis::ErrorKind::TypeError,
                 "Unknown return value",
@@ -87,7 +88,7 @@ impl MoveToFinished {
     pub fn run(
         &self,
         prefix: &str,
-        mut client: &mut redis::Client,
+        con: &mut impl redis::ConnectionLike,
         job_id: &str,
         return_msg: &str,
         target: MoveToFinishedTarget,
@@ -95,13 +96,13 @@ impl MoveToFinished {
     ) -> Result<MoveToFinishedReturn> {
         let mut script = &mut self.0.prepare_invoke();
 
-        let timestamp = SystemTime::now()
+        let timestamp = (SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_millis()
+            .as_millis() as u64)
             .to_string();
 
-        let keys: Vec<String> = [
+        for key in [
             QueueKeys::Wait,
             QueueKeys::Active,
             QueueKeys::Prioritized,
@@ -116,16 +117,11 @@ impl MoveToFinished {
             QueueKeys::Custom(job_id.into()),
             QueueKeys::Metrics,
             QueueKeys::Marker,
-        ]
-        .iter()
-        .map(|s| s.with_prefix(prefix))
-        .collect();
-
-        for key in keys {
-            script = script.key(key)
+        ] {
+            script = script.key(key.with_prefix(prefix));
         }
 
-        let _args = vec![
+        for arg in [
             job_id,
             timestamp.as_str(),
             target.msg_property(),
@@ -133,15 +129,16 @@ impl MoveToFinished {
             target.as_str(),
             "false",
             prefix,
-        ];
-
-        for arg in _args {
+        ] {
             script = script.arg(arg);
         }
 
-        script = script.arg(rmp_serde::to_vec_named(&args).unwrap());
+        script = script.arg(
+            rmp_serde::to_vec_named(&args)
+                .expect("MoveToFinishedArgs serialization should never fail"),
+        );
 
-        let res = script.invoke::<MoveToFinishedReturn>(&mut client)?;
+        let res = script.invoke::<MoveToFinishedReturn>(con)?;
 
         Ok(res)
     }

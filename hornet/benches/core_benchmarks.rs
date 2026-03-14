@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use hornetmq::core::{
     backoff::{self, BackoffStrategy},
-    retry, stall,
+    retry,
 };
 
 fn bench_compute_delay_fixed(c: &mut Criterion) {
@@ -47,12 +47,12 @@ fn bench_next_retry_delay(c: &mut Criterion) {
 
     let none_strategy: Option<BackoffStrategy> = None;
     group.bench_function("no_strategy", |b| {
-        b.iter(|| retry::next_retry_delay(black_box(&none_strategy), black_box(3)))
+        b.iter(|| retry::next_retry_delay(black_box(none_strategy.as_ref()), black_box(3)))
     });
 
     let fixed = Some(BackoffStrategy::Fixed(2000));
     group.bench_function("fixed", |b| {
-        b.iter(|| retry::next_retry_delay(black_box(&fixed), black_box(3)))
+        b.iter(|| retry::next_retry_delay(black_box(fixed.as_ref()), black_box(3)))
     });
 
     let exponential = Some(BackoffStrategy::Exponential {
@@ -60,16 +60,10 @@ fn bench_next_retry_delay(c: &mut Criterion) {
         max: 30_000,
     });
     group.bench_function("exponential", |b| {
-        b.iter(|| retry::next_retry_delay(black_box(&exponential), black_box(3)))
+        b.iter(|| retry::next_retry_delay(black_box(exponential.as_ref()), black_box(3)))
     });
 
     group.finish();
-}
-
-fn bench_is_stalled(c: &mut Criterion) {
-    c.bench_function("stall/is_stalled", |b| {
-        b.iter(|| stall::is_stalled(black_box(1_000_000), black_box(1_000_001)))
-    });
 }
 
 fn bench_backoff_strategy_serde(c: &mut Criterion) {
@@ -107,7 +101,6 @@ criterion_group!(
     bench_compute_delay_exponential,
     bench_should_retry,
     bench_next_retry_delay,
-    bench_is_stalled,
     bench_backoff_strategy_serde,
 );
 criterion_main!(benches);

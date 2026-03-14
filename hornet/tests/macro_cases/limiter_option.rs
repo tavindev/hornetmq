@@ -18,5 +18,5 @@ fn rate_limited_task(job: &Job<Payload>) -> Result<u32> {
 }
 
 fn main() {
-    let _w = RateLimitedTaskWorker::new("redis://localhost:6379");
+    let _w = RateLimitedTaskWorker::new("redis://localhost:6379").unwrap();
 }

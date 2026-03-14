@@ -82,10 +82,10 @@ pub struct Job<Data> {
     pub name: String,
     pub data: Data,
     pub opts: JobOptions,
-    pub timestamp: u128,
-    pub delay: u128,
+    pub timestamp: u64,
+    pub delay: u64,
     pub priority: u32,
-    pub processed_on: u128,
+    pub processed_on: u64,
     pub attempts_started: u32,
     pub attempts_made: Option<u32>,
 }
@@ -95,10 +95,11 @@ pub struct JobBuilder<Data> {
     name: Option<String>,
     data: Option<Data>,
     opts: Option<JobOptions>,
-    timestamp: Option<u128>,
-    delay: Option<u128>,
+    opts_err: Option<String>,
+    timestamp: Option<u64>,
+    delay: Option<u64>,
     priority: Option<u32>,
-    processed_on: Option<u128>,
+    processed_on: Option<u64>,
     attempts_started: Option<u32>,
     attempts_made: Option<u32>,
 }
@@ -116,6 +117,7 @@ impl<Data> JobBuilder<Data> {
             name: None,
             data: None,
             opts: None,
+            opts_err: None,
             timestamp: None,
             delay: None,
             priority: None,
@@ -141,17 +143,19 @@ impl<Data> JobBuilder<Data> {
     }
 
     pub fn opts(mut self, opts: String) -> Self {
-        self.opts =
-            Some(serde_json::from_str(&opts).expect("Failed to parse job options from string"));
+        match serde_json::from_str(&opts) {
+            Ok(parsed) => self.opts = Some(parsed),
+            Err(e) => self.opts_err = Some(format!("invalid opts JSON: {e}")),
+        }
         self
     }
 
-    pub fn timestamp(mut self, timestamp: u128) -> Self {
+    pub fn timestamp(mut self, timestamp: u64) -> Self {
         self.timestamp = Some(timestamp);
         self
     }
 
-    pub fn delay(mut self, delay: u128) -> Self {
+    pub fn delay(mut self, delay: u64) -> Self {
         self.delay = Some(delay);
         self
     }
@@ -161,7 +165,7 @@ impl<Data> JobBuilder<Data> {
         self
     }
 
-    pub fn processed_on(mut self, processed_on: u128) -> Self {
+    pub fn processed_on(mut self, processed_on: u64) -> Self {
         self.processed_on = Some(processed_on);
         self
     }
@@ -176,19 +180,22 @@ impl<Data> JobBuilder<Data> {
         self
     }
 
-    pub fn build(self) -> Job<Data> {
-        Job {
-            id: self.id.unwrap(),
-            name: self.name.unwrap(),
-            data: self.data.unwrap(),
-            opts: self.opts.unwrap(),
-            timestamp: self.timestamp.unwrap(),
-            delay: self.delay.unwrap(),
-            priority: self.priority.unwrap(),
-            processed_on: self.processed_on.unwrap(),
-            attempts_started: self.attempts_started.unwrap(),
-            attempts_made: self.attempts_made,
+    pub fn build(self) -> Result<Job<Data>, String> {
+        if let Some(err) = self.opts_err {
+            return Err(err);
         }
+        Ok(Job {
+            id: self.id.ok_or("missing field: id")?,
+            name: self.name.ok_or("missing field: name")?,
+            data: self.data.ok_or("missing field: data")?,
+            opts: self.opts.ok_or("missing field: opts")?,
+            timestamp: self.timestamp.ok_or("missing field: timestamp")?,
+            delay: self.delay.ok_or("missing field: delay")?,
+            priority: self.priority.ok_or("missing field: priority")?,
+            processed_on: self.processed_on.ok_or("missing field: processedOn")?,
+            attempts_started: self.attempts_started.ok_or("missing field: ats")?,
+            attempts_made: self.attempts_made,
+        })
     }
 }
 
@@ -208,7 +215,8 @@ mod tests {
             .priority(0)
             .processed_on(0)
             .attempts_started(0)
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(job.id, "1");
         assert_eq!(job.name, "test");
@@ -230,7 +238,8 @@ mod tests {
             .processed_on(0)
             .attempts_started(0)
             .attempts_made(2)
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(job.attempts_made, Some(2));
     }

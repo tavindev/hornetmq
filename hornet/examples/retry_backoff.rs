@@ -41,11 +41,11 @@ fn flaky_processor(job: &Job<Task>) -> Result<String> {
 
 #[tokio::main]
 async fn main() {
-    let redis_url = "redis://localhost:6379".to_string();
-    let queue_name = "retry-demo".to_string();
+    let redis_url = "redis://localhost:6379";
+    let queue_name = "retry-demo";
 
     // Enqueue a job with 5 attempts and exponential backoff (1s base, 10s max)
-    let mut queue = Queue::new(queue_name.clone(), redis_url.clone());
+    let mut queue = Queue::new(queue_name, redis_url).unwrap();
     let id = queue
         .add(
             "flaky-task",
@@ -66,7 +66,7 @@ async fn main() {
     println!("Enqueued job {id} with 5 attempts + exponential backoff\n");
 
     // Run worker — will process, fail twice, then succeed
-    let mut worker = Worker::new(queue_name, redis_url, 1, flaky_processor);
+    let mut worker = Worker::new(queue_name, redis_url, 1, flaky_processor).unwrap();
     let shutdown = worker.shutdown_flag();
 
     tokio::spawn(async move {

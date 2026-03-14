@@ -115,10 +115,11 @@ async fn test_worker_processes_job() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
 
@@ -168,10 +169,11 @@ async fn test_worker_retries_with_backoff() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         always_fail_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
 
@@ -211,10 +213,11 @@ async fn test_worker_graceful_shutdown() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
 
@@ -254,10 +257,11 @@ async fn test_worker_fails_after_max_attempts() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         always_fail_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
 
@@ -313,10 +317,11 @@ async fn test_stall_detection() {
     // Use a short lock_duration so the stall checker runs quickly (interval = 1s)
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
     )
+    .unwrap()
     .with_lock_duration(2_000);
 
     let shutdown = worker.shutdown_flag();
@@ -345,6 +350,63 @@ async fn test_stall_detection() {
     assert!(
         is_resolved,
         "Stalled job should be re-queued or completed. active={active_members:?}, wait={wait_members:?}, completed={completed_members:?}"
+    );
+
+    cleanup_queue(&mut conn, &queue_name);
+}
+
+#[test]
+fn test_bad_redis_url_returns_error() {
+    let result = Worker::<TestData, String>::new(
+        "test",
+        "not-a-valid-url",
+        1,
+        success_processor,
+    );
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_closure_processor() {
+    let queue_name = unique_queue_name();
+    let redis_url = "redis://localhost:6379";
+    let mut conn = redis::Client::open(redis_url)
+        .unwrap()
+        .get_connection()
+        .unwrap();
+
+    let job_id = "closure-1";
+    let data = TestData {
+        value: "closure-test".into(),
+    };
+    add_job_to_redis(&mut conn, &queue_name, job_id, &data, r#"{"attempts": 1}"#);
+
+    let prefix_owned = "CAPTURED".to_string();
+    let mut worker = Worker::with_processor(
+        queue_name.clone(),
+        redis_url,
+        1,
+        move |job: &Job<TestData>| -> Result<String> {
+            Ok(format!("{}:{}", prefix_owned, job.data.value))
+        },
+    )
+    .unwrap();
+
+    let shutdown = worker.shutdown_flag();
+    let handle = tokio::spawn(async move { worker.run().await });
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    shutdown.store(true, Ordering::SeqCst);
+
+    let result = handle.await.unwrap();
+    assert!(result.is_ok());
+
+    let prefix = prefix_for(&queue_name);
+    let completed_key = format!("{prefix}completed");
+    let members: Vec<String> = conn.zrange(&completed_key, 0, -1).unwrap();
+    assert!(
+        members.contains(&job_id.to_string()),
+        "Closure processor should have completed the job, got: {members:?}"
     );
 
     cleanup_queue(&mut conn, &queue_name);

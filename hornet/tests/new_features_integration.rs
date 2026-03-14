@@ -39,7 +39,7 @@ fn success_processor(job: &Job<TestData>) -> Result<String> {
 #[test]
 fn custom_job_id() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let id = queue.add("test", serde_json::json!({"x": 1}), AddJobOptions {
         job_id: Some("my-custom-id".into()),
@@ -61,7 +61,7 @@ fn custom_job_id() {
 #[test]
 fn duplicate_custom_job_id_returns_same_id() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let id1 = queue.add("test", serde_json::json!(1), AddJobOptions {
         job_id: Some("dup-id".into()),
@@ -90,7 +90,7 @@ fn duplicate_custom_job_id_returns_same_id() {
 #[test]
 fn lifo_ordering() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     queue.add("first", serde_json::json!(1), AddJobOptions {
         lifo: Some(true),
@@ -120,7 +120,7 @@ fn lifo_ordering() {
 #[test]
 fn delayed_job_goes_to_delayed_set() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     queue.add("delayed", serde_json::json!({"x": 1}), AddJobOptions {
         delay: Some(60_000), // 60 seconds — won't fire during test
@@ -139,7 +139,7 @@ fn delayed_job_goes_to_delayed_set() {
 #[test]
 fn delayed_job_score_encoding() {
     let queue_name = unique_queue_name();
-    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379".into());
+    let mut queue = Queue::new(queue_name.clone(), "redis://localhost:6379").unwrap();
 
     let client = redis::Client::open("redis://localhost:6379").unwrap();
     let mut conn = client.get_connection().unwrap();
@@ -189,7 +189,7 @@ fn delayed_job_score_encoding() {
 async fn delayed_job_gets_promoted_and_processed() {
     let queue_name = unique_queue_name();
     let redis_url = "redis://localhost:6379";
-    let mut queue = Queue::new(queue_name.clone(), redis_url.into());
+    let mut queue = Queue::new(queue_name.clone(), redis_url).unwrap();
 
     // Add with tiny delay so it gets promoted quickly
     queue.add("quick-delay", serde_json::json!({"value": "delayed-hello"}), AddJobOptions {
@@ -203,10 +203,11 @@ async fn delayed_job_gets_promoted_and_processed() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
 
@@ -284,7 +285,7 @@ async fn remove_on_complete_true_deletes_job() {
     let _: u32 = conn.lpush(&wait_key, "1").unwrap();
     let _: u32 = conn.zadd(&marker_key, "0", 0.0).unwrap();
 
-    let mut worker = Worker::new(queue_name.clone(), redis_url.to_string(), 1, success_processor);
+    let mut worker = Worker::new(queue_name.clone(), redis_url, 1, success_processor).unwrap();
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
 
@@ -341,7 +342,7 @@ async fn remove_on_complete_count_keeps_n_jobs() {
     }
     let _: u32 = conn.zadd(&marker_key, "0", 0.0).unwrap();
 
-    let mut worker = Worker::new(queue_name.clone(), redis_url.to_string(), 1, success_processor);
+    let mut worker = Worker::new(queue_name.clone(), redis_url, 1, success_processor).unwrap();
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
 
@@ -362,12 +363,12 @@ async fn remove_on_complete_count_keeps_n_jobs() {
 async fn paused_queue_does_not_process_jobs() {
     let queue_name = unique_queue_name();
     let redis_url = "redis://localhost:6379";
-    let mut queue = Queue::new(queue_name.clone(), redis_url.into());
+    let mut queue = Queue::new(queue_name.clone(), redis_url).unwrap();
 
     queue.add("before-pause", serde_json::json!({"value": "should-wait"}), AddJobOptions::default()).unwrap();
     queue.pause().unwrap();
 
-    let mut worker = Worker::new(queue_name.clone(), redis_url.to_string(), 1, success_processor);
+    let mut worker = Worker::new(queue_name.clone(), redis_url, 1, success_processor).unwrap();
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
 

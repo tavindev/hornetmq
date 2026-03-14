@@ -36,7 +36,7 @@ fn cleanup_queue(conn: &mut redis::Connection, queue_name: &str) {
 }
 
 fn make_queue(name: &str) -> Queue {
-    Queue::new(name.to_string(), "redis://localhost:6379".to_string())
+    Queue::new(name.to_string(), "redis://localhost:6379").unwrap()
 }
 
 fn redis_conn() -> redis::Connection {
@@ -624,10 +624,11 @@ async fn worker_retry_with_bullmq_backoff_format() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         always_fail_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
@@ -710,10 +711,11 @@ async fn remove_on_fail_true_deletes_job() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         always_fail_processor,
-    );
+    )
+    .unwrap();
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
 
@@ -925,10 +927,11 @@ async fn worker_default_backoff_used_when_job_has_none() {
     // Worker has a default backoff
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         always_fail_processor,
     )
+    .unwrap()
     .with_backoff(BackoffStrategy::Fixed(500));
 
     let shutdown = worker.shutdown_flag();
@@ -1022,10 +1025,11 @@ async fn worker_processes_multiple_jobs() {
 
     let mut worker = Worker::new(
         queue_name.clone(),
-        redis_url.to_string(),
+        redis_url,
         1,
         success_processor,
-    );
+    )
+    .unwrap();
 
     let shutdown = worker.shutdown_flag();
     let handle = tokio::spawn(async move { worker.run().await });
