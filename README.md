@@ -11,6 +11,7 @@ A fast, Redis-backed job queue for Rust. **Fully compatible with [BullMQ](https:
 - **Stalled job detection** — recovers jobs whose workers crashed mid-processing
 - **Job events** — state transitions published to Redis streams
 - **Priority queues** — lower number = higher priority
+- **Worker macro** — `#[worker]` attribute macro for zero-boilerplate worker creation
 - **BullMQ compatible** — uses the same Redis data structures and Lua scripts
 
 ## Installation
@@ -87,6 +88,57 @@ async fn main() {
 
 The worker handles SIGINT/SIGTERM automatically — press Ctrl+C and it will finish active jobs before exiting.
 
+### Worker Macro
+
+Use the `#[worker]` attribute macro to define workers with zero boilerplate:
+
+```rust
+use anyhow::Result;
+use hornetmq::{worker, Job};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct Email {
+    to: String,
+    subject: String,
+}
+
+#[worker(queue = "emails", concurrency = 4)]
+fn send_email(job: &Job<Email>) -> Result<String> {
+    println!("Sending to {}: {}", job.data.to, job.data.subject);
+    Ok("sent".into())
+}
+
+#[tokio::main]
+async fn main() {
+    let mut worker = SendEmailWorker::new("redis://localhost:6379");
+    worker.run().await.unwrap();
+}
+```
+
+The macro generates a `SendEmailWorker` struct (PascalCase function name + `Worker`) with `new(redis_url)` and `async run()`. Data and return types are inferred from the function signature.
+
+#### Macro Options
+
+```rust
+#[worker(
+    queue = "tasks",              // required — queue name
+    concurrency = 10,             // default: 1
+    retry = 5,                    // default: 0
+    backoff = "fixed(1000)",      // default: none
+    lock_duration = 60000,        // default: 30000 (ms)
+)]
+fn handle_task(job: &Job<Payload>) -> Result<String> { /* ... */ }
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `queue` | string | *required* | Redis queue name |
+| `concurrency` | integer | `1` | Max concurrent job processors |
+| `retry` | integer | `0` | Max retry attempts |
+| `backoff` | string | none | `"fixed(<ms>)"` or `"exponential(<base>, <max>)"` |
+| `lock_duration` | integer | `30000` | Job lock duration in ms |
+
 ## Job Options
 
 ```rust
@@ -116,7 +168,8 @@ let opts = AddJobOptions {
 
 ```rust
 let mut worker = Worker::new(queue_name, redis_url, concurrency, processor_fn)
-    .with_lock_duration(60_000); // lock duration in ms (default: 30s)
+    .with_lock_duration(60_000)                                    // lock duration in ms (default: 30s)
+    .with_backoff(BackoffStrategy::Exponential { base: 1000, max: 30_000 }); // default backoff for jobs without one
 ```
 
 ### Programmatic Shutdown
