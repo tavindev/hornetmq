@@ -1,1 +1,1 @@
-{ "dependencies": { "bullmq": "^5.1.8", "ioredis": "^5.3.2" } }
+{ "dependencies": { "bullmq": "^5.77.3", "ioredis": "^5.3.2" } }
